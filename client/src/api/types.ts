@@ -7,7 +7,12 @@ export interface User {
   role: "owner" | "customer";
   city: string;
   company_name: string;
+  plan: Plan;
+  cars_limit: number;
+  plan_expires_at?: string | null;   // ← должно быть
 }
+
+export type Plan = "free" | "pro" | "business" | "enterprise";
 
 export type CarStatus = "available" | "rented" | "maintenance";
 

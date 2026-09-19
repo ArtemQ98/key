@@ -1,6 +1,7 @@
 import { CalendarDays, Clock3, Wallet, CircleDollarSign } from "lucide-react";
 import type { Rental } from "@/api/types";
 import { money } from "@/lib/format";
+import { MetricCard } from "@/features/dashboard";
 
 export function RentalKpis({ rentals }: { rentals: Rental[] }) {
   const inWork = rentals.filter((r) =>
@@ -23,62 +24,31 @@ export function RentalKpis({ rentals }: { rentals: Rental[] }) {
 
   return (
     <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Kpi
+      <MetricCard
         icon={CalendarDays}
         label="В работе"
         value={inWork}
+        tone="blue"
       />
-      <Kpi
+      <MetricCard
         icon={Clock3}
         label="Ожидают решения"
         value={pending}
-        highlight={pending > 0}
+        tone={pending > 0 ? "orange" : "green"}
+        sub={pending > 0 ? "требуют внимания" : "всё под контролем"}
       />
-      <Kpi
+      <MetricCard
         icon={Wallet}
         label="Выручка"
         value={money(revenue)}
+        tone="green"
       />
-      <Kpi
+      <MetricCard
         icon={CircleDollarSign}
         label="Депозиты"
         value={money(deposits)}
+        tone="purple"
       />
-    </div>
-  );
-}
-
-function Kpi({
-  icon: Icon,
-  label,
-  value,
-  highlight,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number | string;
-  highlight?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 shadow-card">
-      <div
-        className={
-          "flex h-10 w-10 items-center justify-center rounded-lg " +
-          (highlight
-            ? "bg-[hsl(var(--warning))]/15 text-[hsl(var(--warning))]"
-            : "bg-secondary text-muted-foreground")
-        }
-      >
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0">
-        <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          {label}
-        </div>
-        <div className="mt-0.5 text-lg font-semibold tracking-tight">
-          {value}
-        </div>
-      </div>
     </div>
   );
 }

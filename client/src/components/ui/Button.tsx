@@ -4,20 +4,22 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]",
   {
     variants: {
       variant: {
         primary:
-          "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+          "bg-primary text-primary-foreground hover:bg-primary-dark shadow-sm hover:shadow-brand hover:-translate-y-px active:translate-y-0",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/70",
         outline:
-          "border border-border bg-background hover:bg-secondary/60",
-        ghost: "hover:bg-secondary/60",
+          "border border-border bg-background hover:bg-secondary/60 hover:border-primary/30",
+        ghost:
+          "hover:bg-secondary/60 hover:text-foreground",
         danger:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        link: "text-foreground underline-offset-4 hover:underline",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 hover:shadow-lg hover:shadow-destructive/20",
+        link:
+          "text-primary underline-offset-4 hover:underline",
       },
       size: {
         sm: "h-8 px-3 text-xs",

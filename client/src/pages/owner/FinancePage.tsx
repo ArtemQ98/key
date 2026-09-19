@@ -1,7 +1,13 @@
 import { useState } from "react";
-import { ChevronRight, CircleDollarSign } from "lucide-react";
+import {
+  ChevronRight,
+  CircleDollarSign,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import { PageHead } from "@/components/layout";
 import { Empty, Skeleton } from "@/components/ui";
+import { MetricCard } from "@/features/dashboard";
 import { useCars } from "@/hooks/useCars";
 import { CarFinanceModal } from "@/features/cars";
 import { money } from "@/lib/format";
@@ -14,7 +20,6 @@ export function FinancePage() {
 
   const cars = carsQuery.data ?? [];
 
-  // Общая сводка по парку
   const totalEarnings = cars.reduce((a, c) => a + (c.earnings || 0), 0);
   const totalExpenses = cars.reduce((a, c) => a + (c.expenses || 0), 0);
   const totalNet = totalEarnings - totalExpenses;
@@ -29,16 +34,23 @@ export function FinancePage() {
 
       {cars.length > 0 && (
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Stat
+          <MetricCard
+            icon={TrendingUp}
             label="Заработано"
             value={money(totalEarnings)}
-            tone="success"
+            tone="green"
           />
-          <Stat label="Расходы" value={money(totalExpenses)} />
-          <Stat
+          <MetricCard
+            icon={TrendingDown}
+            label="Расходы"
+            value={money(totalExpenses)}
+            tone="orange"
+          />
+          <MetricCard
+            icon={CircleDollarSign}
             label="Итого"
             value={money(totalNet)}
-            tone={totalNet >= 0 ? "success" : "danger"}
+            tone={totalNet >= 0 ? "cyan" : "pink"}
           />
         </div>
       )}
@@ -55,10 +67,10 @@ export function FinancePage() {
             <button
               key={c.id}
               onClick={() => setSelected(c)}
-              className="flex w-full items-center gap-4 rounded-xl border border-border bg-card p-5 text-left shadow-card transition-colors hover:bg-secondary/40"
+              className="group flex w-full items-center gap-4 rounded-xl border border-border bg-card p-5 text-left shadow-card transition-all duration-300 hover:shadow-elevated hover:-translate-y-0.5 hover:border-primary/20"
             >
               <div className="flex min-w-0 flex-1 items-center gap-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary transition-transform duration-300 group-hover:scale-110">
                   <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <div className="min-w-0">
@@ -105,7 +117,7 @@ export function FinancePage() {
                 </div>
               </div>
 
-              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
             </button>
           ))}
         </div>
@@ -122,32 +134,5 @@ export function FinancePage() {
         onOpenChange={(open) => !open && setSelected(null)}
       />
     </>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: "success" | "danger";
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-card">
-      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div
-        className={cn(
-          "mt-1 text-xl font-semibold tracking-tight",
-          tone === "success" && "text-[hsl(var(--success))]",
-          tone === "danger" && "text-destructive",
-        )}
-      >
-        {value}
-      </div>
-    </div>
   );
 }

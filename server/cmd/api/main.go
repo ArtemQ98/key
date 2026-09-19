@@ -36,6 +36,21 @@ type App struct {
     rlRegister  *rateLimiter  // /auth/register + /auth/customer/register
 }
 
+type PlanInfo struct {
+	Plan        string
+	Limit       int
+	ExpiresAt   *time.Time
+}
+
+func (a *App) getPlanInfo(ctx context.Context, ownerID int64) (PlanInfo, error) {
+	var info PlanInfo
+	err := a.db.QueryRow(ctx,
+		`SELECT plan, cars_limit, plan_expires_at
+		 FROM users WHERE id=$1`, ownerID).
+		Scan(&info.Plan, &info.Limit, &info.ExpiresAt)
+	return info, err
+}
+
 func appDir() string {
     return getenv("APP_DIR", "/app")
 }
@@ -119,6 +134,9 @@ type User struct {
 	Role          string `json:"role"`
 	City          string `json:"city"`
 	CompanyName   string `json:"company_name"`
+	Plan          string `json:"plan"`
+	CarsLimit     int    `json:"cars_limit"`
+	PlanExpiresAt *time.Time `json:"plan_expires_at,omitempty"`
 }
 
 type Car struct {
@@ -193,10 +211,20 @@ func main() {
 	if err := ensureRentalsCarIDSchema(ctx, db); err != nil {
 		log.Fatal("rentals car_id migration: ", err)
 	}
+	if err := ensurePlansSchema(ctx, db); err != nil {
+		log.Fatal("plans migration: ", err)
+	}
 
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET is required (min 32 chars)")
+	}
+	if len(jwtSecret) < 32 {
+		log.Fatal("JWT_SECRET must be at least 32 characters")
+	}
 	app := &App{
 		db: db, 
-		jwtSecret: []byte(getenv("JWT_SECRET", "change-me-in-production")), 
+		jwtSecret: []byte(jwtSecret), 
 		rlSendCode: newRateLimiter(5, 15*time.Minute),
 		rlVerify:   newRateLimiter(10, 5*time.Minute),
 		rlLogin:    newRateLimiter(10, 5*time.Minute),
@@ -372,6 +400,27 @@ func ensureCarFinanceSchema(ctx context.Context, db *pgxpool.Pool) error {
 	return nil
 }
 
+func ensurePlansSchema(ctx context.Context, db *pgxpool.Pool) error {
+	var exists bool
+	if err := db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		 WHERE table_name='users' AND column_name='plan')`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "015_plans.sql"))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, string(b)); err != nil {
+		return err
+	}
+	log.Println("KEY plans schema applied")
+	return nil
+}
+
 func ensureBookingUXSchema(ctx context.Context, db *pgxpool.Pool) error {
 	var exists bool
 	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='rentals' AND column_name='pickup_meeting_at')`).Scan(&exists); err != nil {
@@ -468,7 +517,14 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO fleet_profiles(owner_id,slug,title,description,city,published,rating) VALUES($1,$2,$3,'', $4, true, 5.00) ON CONFLICT(owner_id) DO UPDATE SET city=EXCLUDED.city,published=true`, id, slug, first(in.CompanyName, in.Name), city)
 
 	token, _ := a.token(id, "owner")
-	write(w, 201, map[string]any{"token": token, "user": User{ID: id, Name: in.Name, Email: in.Email, Phone: in.Phone, Role: "owner", City: city, CompanyName: in.CompanyName}})
+	write(w, 201, map[string]any{
+		"token": token,
+		"user": User{
+			ID: id, Name: in.Name, Email: in.Email, Phone: in.Phone,
+			Role: "owner", City: city, CompanyName: in.CompanyName,
+			Plan: "free", CarsLimit: 3,
+		},
+	})
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
@@ -491,9 +547,9 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	var u User
 	var hash string
 	err := a.db.QueryRow(r.Context(), `
-		SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,password_hash
-		FROM users WHERE email=lower($1) OR phone=$2`, idf, phone).
-		Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role, &u.City, &u.CompanyName, &hash)
+    	SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,password_hash,plan,cars_limit,plan_expires_at
+    	FROM users WHERE email=lower($1) OR phone=$2`, idf, phone).
+    Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role, &u.City, &u.CompanyName, &hash, &u.Plan, &u.CarsLimit, &u.PlanExpiresAt)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
 		write(w, 401, map[string]string{"error": "неверный телефон/email или пароль"})
 		return
@@ -504,6 +560,27 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 
 func hashCode(code string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(code)))
+}
+
+func isValidImage(b []byte) bool {
+    if len(b) < 12 {
+        return false
+    }
+    // JPEG: FF D8 FF
+    if b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF {
+        return true
+    }
+    // PNG: 89 50 4E 47 0D 0A 1A 0A
+    if b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47 &&
+        b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A {
+        return true
+    }
+    // WebP: RIFF ... WEBP
+    if b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' &&
+        b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P' {
+        return true
+    }
+    return false
 }
 
 func (a *App) requestCode(w http.ResponseWriter, r *http.Request) {
@@ -718,10 +795,12 @@ func userID(ctx context.Context) int64 {
 	return id
 }
 
-func (a *App) me(w http.ResponseWriter, r *http.Request) {
+func (a *App) 	me(w http.ResponseWriter, r *http.Request) {
 	var u User
-	err := a.db.QueryRow(r.Context(), `SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name FROM users WHERE id=$1`, userID(r.Context())).
-		Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role, &u.City, &u.CompanyName)
+	err := a.db.QueryRow(r.Context(), 
+    	`SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,plan,cars_limit,plan_expires_at 
+     	FROM users WHERE id=$1`, userID(r.Context())).
+    	Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role, &u.City, &u.CompanyName, &u.Plan, &u.CarsLimit, &u.PlanExpiresAt)
 	if err != nil {
 		write(w, 404, map[string]string{"error": "user not found"})
 		return
@@ -847,7 +926,30 @@ FROM cars c WHERE c.owner_id=$1 ORDER BY c.id DESC`, id)
 			write(w, 422, map[string]string{"error": "заполните марку, модель, госномер и год"})
 			return
 		}
-		err := a.db.QueryRow(r.Context(), `INSERT INTO cars(owner_id,brand,model,plate,year,status,location,daily_price,mileage,color,vin,public_enabled,category,seats,transmission,fuel,description,image_url,deposit,engine_volume,horsepower,drive_type,fuel_consumption,tank_volume,maintenance_interval) VALUES($1,$2,$3,$4,$5,'available',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`,
+		
+		planInfo, err := a.getPlanInfo(r.Context(), id)
+		if err != nil {
+			write(w, 500, map[string]string{"error": "не удалось получить план"})
+			return
+		}
+
+		var currentCount int
+		_ = a.db.QueryRow(r.Context(), `SELECT count(*) FROM cars WHERE owner_id=$1`, id).Scan(&currentCount)
+		if currentCount >= planInfo.Limit {
+			write(w, 402, map[string]any{
+				"error": fmt.Sprintf(
+					"Достигнут лимит тарифа %s: %d автомобилей. Обновите план, чтобы добавить ещё.",
+					planInfo.Plan, planInfo.Limit,
+				),
+				"code":  "limit_reached",
+				"plan":  planInfo.Plan,
+				"limit": planInfo.Limit,
+				"current": currentCount,
+			})
+			return
+		}
+
+		err = a.db.QueryRow(r.Context(), `INSERT INTO cars(owner_id,brand,model,plate,year,status,location,daily_price,mileage,color,vin,public_enabled,category,seats,transmission,fuel,description,image_url,deposit,engine_volume,horsepower,drive_type,fuel_consumption,tank_volume,maintenance_interval) VALUES($1,$2,$3,$4,$5,'available',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id`,
 			id, strings.TrimSpace(c.Brand), strings.TrimSpace(c.Model), strings.ToUpper(strings.TrimSpace(c.Plate)), c.Year, first(c.Location, "Санкт-Петербург"), c.DailyPrice, c.Mileage, strings.TrimSpace(c.Color), strings.TrimSpace(c.VIN), c.PublicEnabled || true, first(c.Category, "Седан"), maxInt(c.Seats, 5), first(c.Transmission, "Автомат"), first(c.Fuel, "Бензин"), strings.TrimSpace(c.Description), strings.TrimSpace(c.ImageURL), c.Deposit, strings.TrimSpace(c.EngineVolume), c.Horsepower, strings.TrimSpace(c.DriveType), strings.TrimSpace(c.FuelConsumption), strings.TrimSpace(c.TankVolume), c.MaintenanceInterval).Scan(&c.ID)
 		if err != nil {
 			write(w, 409, map[string]string{"error": "не удалось добавить автомобиль"})
@@ -920,6 +1022,17 @@ func (a *App) carPhotos(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := file.Seek(0, 0); err != nil {
 			write(w, 400, map[string]string{"error": "не удалось обработать файл"})
+			return
+		}
+		if !isValidImage(buf[:]) {
+			write(w, 415, map[string]string{"error": "файл не является изображением"})
+			return
+		}
+		var existingCount int
+		_ = a.db.QueryRow(r.Context(),
+			`SELECT count(*) FROM car_photos WHERE car_id=$1`, id).Scan(&existingCount)
+		if existingCount >= 10 {
+			write(w, 422, map[string]string{"error": "максимум 10 фото на автомобиль"})
 			return
 		}
 		var rb [12]byte
@@ -1239,11 +1352,34 @@ func (a *App) carByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "DELETE" {
-		tag, err := a.db.Exec(r.Context(), `DELETE FROM cars WHERE id=$1 AND owner_id=$2`, id, owner)
+		// 1. Собрать пути файлов до удаления записи.
+		// FK CASCADE удалит car_photos, но файлы на диске останутся без этой обработки.
+		rows, _ := a.db.Query(r.Context(),
+			`SELECT url FROM car_photos WHERE car_id=$1`, id)
+		var photoURLs []string
+		if rows != nil {
+			for rows.Next() {
+				var u string
+				if rows.Scan(&u) == nil {
+					photoURLs = append(photoURLs, u)
+				}
+			}
+			rows.Close()
+		}
+
+		// 2. Удалить запись — FK CASCADE уберёт car_photos.
+		tag, err := a.db.Exec(r.Context(),
+			`DELETE FROM cars WHERE id=$1 AND owner_id=$2`, id, owner)
 		if err != nil || tag.RowsAffected() == 0 {
 			write(w, 404, map[string]string{"error": "автомобиль не найден"})
 			return
 		}
+
+		// 3. Удалить файлы с диска.
+		for _, u := range photoURLs {
+			_ = os.Remove(filepath.Join(appDir(), strings.TrimPrefix(u, "/")))
+		}
+
 		write(w, 200, map[string]bool{"ok": true})
 		return
 	}
@@ -1442,6 +1578,13 @@ func (a *App) transitionRental(ctx context.Context, rentalID, actorID int64, act
 	}
 	if !allowedRentalTransition(from, to) {
 		return fmt.Errorf("нельзя перевести аренду из «%s» в «%s»", from, to)
+	}
+	if to == "completed" {
+		var paid string
+		_ = tx.QueryRow(ctx, `SELECT payment_status FROM rentals WHERE id=$1`, rentalID).Scan(&paid)
+		if paid != "paid" {
+			return fmt.Errorf("нельзя завершить сделку без подтверждения оплаты")
+		}
 	}
 	_, err = tx.Exec(ctx, `UPDATE rentals SET status=$1, cancellation_reason=CASE WHEN $1 IN ('cancelled','rejected') THEN $2 ELSE cancellation_reason END, pickup_at=CASE WHEN $1='active' AND pickup_at IS NULL THEN now() ELSE pickup_at END, returned_at=CASE WHEN $1='returned' THEN now() ELSE returned_at END, updated_at=now() WHERE id=$3`, to, strings.TrimSpace(reason), rentalID)
 	if err != nil {
@@ -2174,8 +2317,10 @@ func (a *App) customerLogin(w http.ResponseWriter, r *http.Request) {
 	phone := normalizePhone(idf)
 	var u User
 	var hash string
-	err := a.db.QueryRow(r.Context(), `SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,password_hash FROM users WHERE role='customer' AND (email=lower($1) OR phone=$2)`, idf, phone).
-		Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role, &u.City, &u.CompanyName, &hash)
+	err := a.db.QueryRow(r.Context(), 
+    	`SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,password_hash,plan,cars_limit,plan_expires_at 
+     	FROM users WHERE role='customer' AND (email=lower($1) OR phone=$2)`, idf, phone).
+    	Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role, &u.City, &u.CompanyName, &hash, &u.Plan, &u.CarsLimit, &u.PlanExpiresAt)
 	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(in.Password)) != nil {
 		write(w, 401, map[string]string{"error": "неверный телефон/email или пароль"})
 		return

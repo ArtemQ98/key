@@ -1,6 +1,7 @@
 import type { Variants } from "framer-motion";
 
 export const EASE_OUT = [0.16, 1, 0.3, 1] as const;
+export const EASE_SPRING = [0.34, 1.56, 0.64, 1] as const;
 
 export const fadeIn: Variants = {
   hidden: { opacity: 0 },
@@ -57,6 +58,20 @@ export const modalContent: Variants = {
     opacity: 0,
     scale: 0.98,
     y: 4,
+    transition: { duration: 0.15 },
+  },
+};
+
+export const pageTransition: Variants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.22, ease: EASE_OUT },
+  },
+  exit: {
+    opacity: 0,
+    y: -4,
     transition: { duration: 0.15 },
   },
 };

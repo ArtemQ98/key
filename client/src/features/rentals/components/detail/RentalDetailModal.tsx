@@ -6,6 +6,7 @@ import {
   ModalBody,
   RentalStatusBadge,
   Spinner,
+  toast,
 } from "@/components/ui";
 import { useRentalDetail, useUpdateRentalStatus } from "@/hooks/useRentals";
 import type { RentalStatus } from "@/api/types";
@@ -14,6 +15,8 @@ import { RentalStats } from "./RentalStats";
 import { RentalOpsPanel } from "./RentalOpsPanel";
 import { RentalDataColumns } from "./RentalDataColumns";
 import { RentalEventsTimeline } from "./RentalEventsTimeline";
+import { AlertTriangle, Wallet } from "lucide-react";
+import { useTogglePayment } from "@/hooks/useRentals";
 
 const NEXT_STATUS: Partial<Record<RentalStatus, RentalStatus[]>> = {
   hold: ["confirmed", "rejected"],
@@ -51,6 +54,7 @@ export function RentalDetailModal({
   const detailQuery = useRentalDetail(rentalId);
   const updateStatus = useUpdateRentalStatus();
   const [tab, setTab] = useState<"ops" | "data" | "events">("ops");
+  const togglePayment = useTogglePayment();
 
   function transition(status: RentalStatus) {
     console.log("🚀 transition called:", rentalId, status);
@@ -100,25 +104,80 @@ export function RentalDetailModal({
             <RentalProgress status={detailQuery.data.status} />
 
             {NEXT_STATUS[detailQuery.data.status] && (
-              <div className="mt-5 flex flex-wrap gap-2">
-                {NEXT_STATUS[detailQuery.data.status]?.map((s) => (
-                  <Button
-                    key={s}
-                    variant={
-                      s === "cancelled" || s === "rejected"
-                        ? "danger"
-                        : "primary"
-                    }
-                    size="sm"
-                    onClick={() => transition(s)}
-                    loading={updateStatus.isPending}
-                  >
-                    {STATUS_LABELS[s]}
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </Button>
-                ))}
+            <div className="mt-5 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {NEXT_STATUS[detailQuery.data.status]?.map((s) => {
+                  const needsPayment =
+                    s === "completed" &&
+                    detailQuery.data.payment_status !== "paid";
+
+                  return (
+                    <Button
+                      key={s}
+                      variant={
+                        s === "cancelled" || s === "rejected" ? "danger" : "primary"
+                      }
+                      size="sm"
+                      onClick={() => {
+                        if (needsPayment) {
+                          toast.warning(
+                            "Сначала подтвердите оплату в панели операций ниже",
+                            { duration: 4000 },
+                          );
+                          return;
+                        }
+                        transition(s);
+                      }}
+                      loading={updateStatus.isPending}
+                    >
+                      {STATUS_LABELS[s]}
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                  );
+                })}
               </div>
-            )}
+
+              {/* Явное предупреждение под кнопками */}
+              {detailQuery.data.status === "returned" &&
+                detailQuery.data.payment_status !== "paid" && (
+                  <div className="flex items-start gap-3 rounded-xl border border-[hsl(var(--warning))]/30 bg-[hsl(var(--warning))]/10 p-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--warning))]" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="text-sm font-medium text-[hsl(var(--warning))]">
+                        Сделка ещё не оплачена
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Подтвердите оплату в блоке «Операции» ниже, чтобы закрыть сделку.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          togglePayment.mutate(
+                            { id: detailQuery.data.id, paid: true },
+                            {
+                              onSuccess: () => {
+                                toast.success("Оплата подтверждена");
+                              },
+                              onError: (e) =>
+                                toast.error(
+                                  e instanceof Error ? e.message : "Ошибка",
+                                ),
+                            },
+                          );
+                        }}
+                        disabled={togglePayment.isPending}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-[hsl(var(--warning))] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[hsl(var(--warning))]/90 disabled:opacity-50"
+                      >
+                        <Wallet className="h-3.5 w-3.5" />
+                        {togglePayment.isPending
+                          ? "Подтверждаем…"
+                          : "Подтвердить оплату"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+            </div>
+          )}
           </div>
 
           <ModalBody className="space-y-5">

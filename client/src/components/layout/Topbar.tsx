@@ -39,12 +39,12 @@ export function Topbar({ user, title, alerts = 0, className }: TopbarProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="relative"
+          className="relative group"
           aria-label="Уведомления"
         >
-          <Bell className="h-4 w-4" />
+          <Bell className="h-4 w-4 transition-transform duration-300 group-hover:animate-bell-shake" />
           {alerts > 0 && (
-            <span className="absolute right-1.5 top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+            <span className="absolute right-1.5 top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground animate-pulse">
               {alerts}
             </span>
           )}

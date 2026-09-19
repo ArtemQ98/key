@@ -19,6 +19,8 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          light: "hsl(var(--primary-light))",
+          dark: "hsl(var(--primary-dark))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -52,6 +54,7 @@ export default {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
         },
+        info: "hsl(var(--info))",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -82,7 +85,17 @@ export default {
           to: { opacity: "1", transform: "scale(1)" },
         },
         shimmer: {
-          "100%": { transform: "translateX(100%)" },
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
+        "bell-shake": {
+          "0%, 100%": { transform: "rotate(0)" },
+          "20%, 60%": { transform: "rotate(12deg)" },
+          "40%, 80%": { transform: "rotate(-12deg)" },
+        },
+        "gradient-shift": {
+          "0%, 100%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
         },
       },
       animation: {

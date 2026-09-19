@@ -13,6 +13,7 @@ import { addDaysISO, todayISO } from "@/lib/dates";
 import { CustomerAuthModal } from "@/features/marketplace";
 import { BookingModal } from "@/features/marketplace";
 import type { PublicCar } from "@/api/types";
+import { motion } from "framer-motion";
 
 export function MarketplacePage() {
   const navigate = useNavigate();
@@ -59,9 +60,16 @@ export function MarketplacePage() {
 
       {/* HERO */}
       <section className="relative overflow-hidden border-b border-border">
+        {/* Градиентные пятна */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-40 left-1/2 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-foreground/[0.04] blur-3xl"
+          className="pointer-events-none absolute -top-40 left-1/4 h-[500px] w-[500px] animate-pulse rounded-full bg-gradient-to-br from-indigo-500/20 to-blue-500/20 blur-3xl"
+          style={{ animationDuration: "6s" }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-20 right-1/4 h-[400px] w-[400px] animate-pulse rounded-full bg-gradient-to-br from-blue-500/15 to-cyan-500/15 blur-3xl"
+          style={{ animationDuration: "8s", animationDelay: "1s" }}
         />
 
         <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24">
@@ -69,11 +77,43 @@ export function MarketplacePage() {
             <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               KEY marketplace
             </span>
-            <h1 className="mt-3 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl md:text-6xl">
-              Арендуй машину
+            <motion.h1
+              className="mt-3 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl md:text-6xl"
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: {},
+                visible: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+              }}
+            >
+              <motion.span
+                className="inline-block"
+                variants={{
+                  hidden: { opacity: 0, y: 20 },
+                  visible: {
+                    opacity: 1,
+                    y: 0,
+                    transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] },
+                  },
+                }}
+              >
+                Арендуй машину
+              </motion.span>
               <br />
-              <span className="text-muted-foreground">без лишнего.</span>
-            </h1>
+              <motion.span
+                className="inline-block text-gradient"
+                variants={{
+                  hidden: { opacity: 0, y: 20 },
+                  visible: {
+                    opacity: 1,
+                    y: 0,
+                    transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] },
+                  },
+                }}
+              >
+                без лишнего.
+              </motion.span>
+            </motion.h1>
             <p className="mx-auto mt-5 max-w-xl text-base text-muted-foreground">
               Автомобили от локальных автопарков. Реальная доступность,
               понятная цена и бронь за несколько минут.

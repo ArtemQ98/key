@@ -4,6 +4,10 @@ import { useAuthStore } from "@/stores/auth";
 import { CenteredSpinner } from "@/components/ui";
 import { Shell } from "./Shell";
 import { useUIStore } from "@/stores/ui";
+import { motion } from "framer-motion";
+// import { AnimatePresence, motion } from "framer-motion";
+// import { pageTransition } from "@/components/animations";
+
 
 const titles: Record<string, string> = {
   "/app": "Обзор",
@@ -59,7 +63,14 @@ export function OwnerLayout() {
         setSidebarOpen(true);
       }}
     >
-      <Outlet />
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <Outlet />
+      </motion.div>
     </Shell>
   );
 }

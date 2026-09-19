@@ -5,6 +5,8 @@ import { z } from "zod";
 import { Building2, Check, LogOut, Mail, Phone, ShieldCheck } from "lucide-react";
 import { PageHead } from "@/components/layout";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { PlanModal, PlanUsageCard } from "@/features/plans";
+
 import {
   Button,
   Card,
@@ -31,6 +33,7 @@ export function SettingsPage() {
   const logout = useAuthStore((s) => s.logout);
   const updateProfile = useUpdateProfile();
   const [saved, setSaved] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
 
   const {
     register,
@@ -112,6 +115,7 @@ export function SettingsPage() {
         </Card>
 
         <div className="space-y-6">
+          <PlanUsageCard onUpgrade={() => setPlanOpen(true)} />
           <Card>
             <CardHeader>
               <CardTitle>Тема интерфейса</CardTitle>
@@ -152,6 +156,7 @@ export function SettingsPage() {
           </Card>
         </div>
       </div>
+      <PlanModal open={planOpen} onOpenChange={setPlanOpen} />
     </>
   );
 }

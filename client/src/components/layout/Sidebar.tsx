@@ -64,15 +64,27 @@ export function Sidebar({ user, onLogout, className }: SidebarProps) {
               end={item.end}
               className={({ isActive }) =>
                 cn(
-                  "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
                   isActive
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground hover:translate-x-0.5",
                 )
               }
             >
-              <Icon className="h-4 w-4 shrink-0" />
-              <span className="flex-1 truncate">{item.label}</span>
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-primary" />
+                  )}
+                  <Icon
+                    className={cn(
+                      "h-4 w-4 shrink-0 transition-transform duration-200",
+                      isActive ? "text-primary" : "group-hover:scale-110",
+                    )}
+                  />
+                  <span className="flex-1 truncate">{item.label}</span>
+                </>
+              )}
             </NavLink>
           );
         })}

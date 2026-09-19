@@ -1,9 +1,4 @@
-import {
-  CarFront,
-  ClipboardCheck,
-  Gauge,
-  Wrench,
-} from "lucide-react";
+import { CarFront, ClipboardCheck, Gauge, Wrench } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { PageHead } from "@/components/layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
@@ -18,7 +13,7 @@ import {
   RecentRentals,
   TodoList,
 } from "@/features/dashboard";
-import { money, num } from "@/lib/format";
+import { money } from "@/lib/format";
 
 export function OverviewPage() {
   const user = useAuthStore((s) => s.user);
@@ -51,21 +46,25 @@ export function OverviewPage() {
         <MetricCard
           icon={ClipboardCheck}
           label="Сделки"
-          value={num(rentals.length)}
+          value={rentals.length}
+          tone="blue"
           loading={rLoading}
           sub={`${rentals.filter((r) => ["pending", "confirmed", "active"].includes(r.status)).length} сейчас в работе`}
         />
         <MetricCard
           icon={CarFront}
           label="Автомобили"
-          value={num(dashboard?.fleet ?? 0)}
+          value={dashboard?.fleet ?? 0}
+          tone="purple"
           loading={dLoading}
           sub={`${dashboard?.rented ?? 0} в аренде · ${dashboard?.available ?? 0} свободно`}
         />
         <MetricCard
           icon={Gauge}
           label="Загрузка"
-          value={`${dashboard?.utilization ?? 0}%`}
+          value={dashboard?.utilization ?? 0}
+          tone="green"
+          format={(n) => `${Math.round(n)}%`}
           loading={dLoading}
           sub={
             (dashboard?.utilization ?? 0) >= 70
