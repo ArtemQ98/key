@@ -12,6 +12,7 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,7 +30,40 @@ import (
 type App struct {
 	db        *pgxpool.Pool
 	jwtSecret []byte
-	rl        *rateLimiter
+	rlSendCode  *rateLimiter  // /auth/request-code
+    rlVerify    *rateLimiter  // /auth/verify-code
+    rlLogin     *rateLimiter  // /auth/login + /auth/customer/login
+    rlRegister  *rateLimiter  // /auth/register + /auth/customer/register
+}
+
+func appDir() string {
+    return getenv("APP_DIR", "/app")
+}
+
+func uploadsDir() string {
+    return filepath.Join(appDir(), "uploads")
+}
+
+func migrationsDir() string {
+    return filepath.Join(appDir(), "migrations")
+}
+
+func clientIP(r *http.Request) string {
+    if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+        // За прокси берём первый адрес из списка.
+        if i := strings.IndexByte(xff, ','); i > 0 {
+            return strings.TrimSpace(xff[:i])
+        }
+        return strings.TrimSpace(xff)
+    }
+    if xri := r.Header.Get("X-Real-IP"); xri != "" {
+        return strings.TrimSpace(xri)
+    }
+    host, _, err := net.SplitHostPort(r.RemoteAddr)
+    if err != nil {
+        return r.RemoteAddr
+    }
+    return host
 }
 
 func randomCode() (string, error) {
@@ -153,11 +187,21 @@ func main() {
 	if err := ensureFleetExtendedSchema(ctx, db); err != nil {
 		log.Fatal("fleet extended migration: ", err)
 	}
-	if err := os.MkdirAll("/app/uploads/cars", 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(uploadsDir(), "cars"), 0o755); err != nil {
 		log.Fatal("uploads: ", err)
 	}
+	if err := ensureRentalsCarIDSchema(ctx, db); err != nil {
+		log.Fatal("rentals car_id migration: ", err)
+	}
 
-	app := &App{db: db, jwtSecret: []byte(getenv("JWT_SECRET", "change-me-in-production")), rl: newRateLimiter(5, 15*time.Minute),}
+	app := &App{
+		db: db, 
+		jwtSecret: []byte(getenv("JWT_SECRET", "change-me-in-production")), 
+		rlSendCode: newRateLimiter(5, 15*time.Minute),
+		rlVerify:   newRateLimiter(10, 5*time.Minute),
+		rlLogin:    newRateLimiter(10, 5*time.Minute),
+		rlRegister: newRateLimiter(5, 60*time.Minute),
+	}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/health", app.health)
@@ -172,7 +216,7 @@ func main() {
 	mux.HandleFunc("/api/public/cars/", app.publicCar)
 	mux.HandleFunc("/api/public/availability", app.publicAvailability)
 	mux.HandleFunc("/api/public/availability/dates", app.publicAvailabilityDates)
-	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("/app/uploads"))))
+	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadsDir()))))
 	mux.Handle("/api/me", app.auth(http.HandlerFunc(app.me)))
 	mux.Handle("/api/profile", app.ownerOnly(http.HandlerFunc(app.profile)))
 	mux.Handle("/api/fleet-profile", app.ownerOnly(http.HandlerFunc(app.fleetProfile)))
@@ -196,8 +240,41 @@ func main() {
 	mux.Handle("/api/customer/bookings", app.auth(http.HandlerFunc(app.customerBookings)))
 	mux.HandleFunc("/api/leads", http.HandlerFunc(app.leads))
 
-	log.Println("KEY API :8080")
-	log.Fatal(http.ListenAndServe(":8080", cors(logging(mux))))
+	addr := getenv("LISTEN_ADDR", ":8080")
+	log.Printf("KEY API %s", addr)
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           cors(logging(mux)),
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MB
+	}
+
+	log.Fatal(srv.ListenAndServe())
+}
+
+func ensureRentalsCarIDSchema(ctx context.Context, db *pgxpool.Pool) error {
+	var exists bool
+	if err := db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		 WHERE table_name='rentals' AND column_name='car_id')`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "013_rentals_car_id.sql"))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, string(b)); err != nil {
+		return err
+	}
+	log.Println("KEY rentals car_id schema applied")
+	return nil
 }
 
 func ensureMarketplaceSchema(ctx context.Context, db *pgxpool.Pool) error {
@@ -208,8 +285,7 @@ func ensureMarketplaceSchema(ctx context.Context, db *pgxpool.Pool) error {
 	if exists {
 		return nil
 	}
-	path := filepath.Join("/app", "migrations", "004_marketplace.sql")
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "004_marketplace.sql"))
 	if err != nil {
 		return err
 	}
@@ -228,7 +304,7 @@ func ensureRentalCoreSchema(ctx context.Context, db *pgxpool.Pool) error {
 	if exists {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join("/app", "migrations", "005_rental_core.sql"))
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "005_rental_core.sql"))
 	if err != nil {
 		return err
 	}
@@ -247,7 +323,7 @@ func ensureRentalFinanceSchema(ctx context.Context, db *pgxpool.Pool) error {
 	if exists {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join("/app", "migrations", "006_rental_finance.sql"))
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "006_rental_finance.sql"))
 	if err != nil {
 		return err
 	}
@@ -259,7 +335,7 @@ func ensureRentalFinanceSchema(ctx context.Context, db *pgxpool.Pool) error {
 }
 
 func ensurePhoneAuthSchema(ctx context.Context, db *pgxpool.Pool) error {
-	b, err := os.ReadFile(filepath.Join("/app", "migrations", "010_phone_auth.sql"))
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "010_phone_auth.sql"))
 	if err != nil {
 		return err
 	}
@@ -269,8 +345,10 @@ func ensurePhoneAuthSchema(ctx context.Context, db *pgxpool.Pool) error {
 
 
 func ensureFleetExtendedSchema(ctx context.Context, db *pgxpool.Pool) error {
-	b, err := os.ReadFile(filepath.Join("/app", "migrations", "011_fleet_profiles_extended.sql"))
-	if err != nil { return err }
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "011_fleet_profiles_extended.sql"))
+	if err != nil {
+		return err
+	}
 	_, err = db.Exec(ctx, string(b))
 	return err
 }
@@ -283,7 +361,7 @@ func ensureCarFinanceSchema(ctx context.Context, db *pgxpool.Pool) error {
 	if exists {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join("/app", "migrations", "009_car_finance.sql"))
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "009_car_finance.sql"))
 	if err != nil {
 		return err
 	}
@@ -302,7 +380,7 @@ func ensureBookingUXSchema(ctx context.Context, db *pgxpool.Pool) error {
 	if exists {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join("/app", "migrations", "008_booking_ux.sql"))
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "008_booking_ux.sql"))
 	if err != nil {
 		return err
 	}
@@ -394,11 +472,20 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+    if !a.rlLogin.allow("login-ip:" + ip) {
+        write(w, 429, map[string]string{"error": "слишком много попыток входа"})
+        return
+    }
 	var in struct{ Identifier, Password string }
 	if decode(r, &in) != nil {
 		write(w, 400, map[string]string{"error": "invalid json"})
 		return
 	}
+	if !a.rlLogin.allow("login-id:" + strings.ToLower(strings.TrimSpace(in.Identifier))) {
+        write(w, 429, map[string]string{"error": "слишком много попыток для этого аккаунта"})
+        return
+    }
 	idf := strings.TrimSpace(in.Identifier)
 	phone := normalizePhone(idf)
 	var u User
@@ -420,59 +507,140 @@ func hashCode(code string) string {
 }
 
 func (a *App) requestCode(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Phone string `json:"phone"`
-	}
-	if decode(r, &in) != nil {
-		write(w, 400, map[string]string{"error": "invalid json"})
+    var in struct {
+        Phone string `json:"phone"`
+    }
+    if decode(r, &in) != nil {
+        write(w, 400, map[string]string{"error": "invalid json"})
+        return
+    }
+    phone := normalizePhone(strings.TrimSpace(in.Phone))
+    if len(phone) < 12 {
+        write(w, 422, map[string]string{"error": "invalid phone"})
+        return
+    }
+    if !a.rlSendCode.allow("send-ip:" + clientIP(r)) {
+		write(w, 429, map[string]string{"error": "слишком много запросов, попробуйте позже"})
 		return
 	}
-	phone := normalizePhone(strings.TrimSpace(in.Phone))
-	if len(phone) < 12 {
-		write(w, 422, map[string]string{"error": "invalid phone"})
+	if !a.rlSendCode.allow("send:" + phone) {
+		write(w, 429, map[string]string{"error": "слишком много запросов на этот номер"})
 		return
 	}
-	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
-	code := strconv.FormatInt(100000+n.Int64(), 10)
-	_, err := a.db.Exec(r.Context(), `INSERT INTO auth_codes(phone,code_hash,expires_at) VALUES($1,$2,now()+interval '5 minutes')`, phone, hashCode(code))
-	if err != nil {
-		write(w, 500, map[string]string{"error": err.Error()})
-		return
-	}
-	// MVP: Telegram bot integration point. In development return the code.
-	write(w, 200, map[string]any{"message": "code sent via Telegram", "dev_code": code})
+
+    code, err := randomCode()
+    if err != nil {
+        write(w, 500, map[string]string{"error": "не удалось создать код"})
+        return
+    }
+
+    // Инвалидируем предыдущие активные коды для этого телефона.
+    _, _ = a.db.Exec(r.Context(),
+        `UPDATE auth_codes SET used_at=now() WHERE phone=$1 AND used_at IS NULL`,
+        phone)
+
+    _, err = a.db.Exec(r.Context(),
+        `INSERT INTO auth_codes(phone,code_hash,expires_at) VALUES($1,$2,now()+interval '5 minutes')`,
+        phone, hashCode(code))
+    if err != nil {
+        write(w, 500, map[string]string{"error": "не удалось сохранить код"})
+        return
+    }
+
+    // TODO: отправка через Telegram-бот / SMS-провайдер.
+    // Пока — заглушка. В проде код НЕ должен возвращаться.
+    resp := map[string]any{"message": "code sent"}
+    if !isProd() {
+        resp["dev_code"] = code
+    }
+    write(w, 200, resp)
 }
 
 func (a *App) verifyCode(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Phone string `json:"phone"`
-		Code  string `json:"code"`
-		Name  string `json:"name"`
-	}
-	if decode(r, &in) != nil {
-		write(w, 400, map[string]string{"error": "invalid json"})
+    var in struct {
+        Phone string `json:"phone"`
+        Code  string `json:"code"`
+        Name  string `json:"name"`
+    }
+    if decode(r, &in) != nil {
+        write(w, 400, map[string]string{"error": "invalid json"})
+        return
+    }
+    phone := normalizePhone(strings.TrimSpace(in.Phone))
+    if len(phone) < 12 {
+        write(w, 422, map[string]string{"error": "invalid phone"})
+        return
+    }
+    code := strings.TrimSpace(in.Code)
+    if len(code) != 6 {
+        write(w, 422, map[string]string{"error": "код должен состоять из 6 цифр"})
+        return
+    }
+    if !a.rlVerify.allow("verify-ip:" + clientIP(r)) {
+		write(w, 429, map[string]string{"error": "слишком много попыток"})
 		return
 	}
-	phone := normalizePhone(strings.TrimSpace(in.Phone))
-	var id int64
-	var role string
-	err := a.db.QueryRow(r.Context(), `SELECT id,role FROM users WHERE phone=$1`, phone).Scan(&id, &role)
-	if err != nil {
-		err = a.db.QueryRow(r.Context(), `INSERT INTO users(name,phone,phone_verified,password_hash,role,city,company_name) VALUES($1,$2,true,'','owner','Санкт-Петербург','') RETURNING id,role`, first(in.Name, "KEY user"), phone).Scan(&id, &role)
-	} else {
-		_, _ = a.db.Exec(r.Context(), `UPDATE users SET phone_verified=true WHERE id=$1`, id)
-	}
-	if err != nil {
-		write(w, 500, map[string]string{"error": err.Error()})
+	if !a.rlVerify.allow("verify:" + phone) {
+		write(w, 429, map[string]string{"error": "слишком много попыток на этот номер"})
 		return
 	}
-	_, err = a.db.Exec(r.Context(), `UPDATE auth_codes SET used_at=now() WHERE phone=$1 AND code_hash=$2 AND used_at IS NULL AND expires_at>now()`, phone, hashCode(in.Code))
-	if err != nil {
-		write(w, 401, map[string]string{"error": "invalid code"})
-		return
-	}
-	t, _ := a.token(id, role)
-	write(w, 200, map[string]any{"token": t, "user": map[string]any{"id": id, "phone": phone, "role": role}})
+
+    ctx := r.Context()
+    tx, err := a.db.Begin(ctx)
+    if err != nil {
+        write(w, 500, map[string]string{"error": "transaction error"})
+        return
+    }
+    defer tx.Rollback(ctx)
+
+    // 1. Атомарно "сжигаем" код. RowsAffected==0 → код неверный/истёк/использован.
+    tag, err := tx.Exec(ctx,
+        `UPDATE auth_codes SET used_at=now()
+         WHERE phone=$1 AND code_hash=$2 AND used_at IS NULL AND expires_at>now()`,
+        phone, hashCode(code))
+    if err != nil {
+        write(w, 500, map[string]string{"error": "db error"})
+        return
+    }
+    if tag.RowsAffected() == 0 {
+        write(w, 401, map[string]string{"error": "неверный или истёкший код"})
+        return
+    }
+
+    // 2. Ищем пользователя. Если нет — создаём.
+    var id int64
+    var role string
+    err = tx.QueryRow(ctx,
+        `SELECT id,role FROM users WHERE phone=$1`,
+        phone).Scan(&id, &role)
+    if err != nil {
+        // Новый пользователь. Роль по умолчанию — customer.
+        // Owner-режим должен включаться отдельно (например, через /api/profile).
+        role = "customer"
+        err = tx.QueryRow(ctx,
+            `INSERT INTO users(name,phone,phone_verified,password_hash,role,city,company_name)
+             VALUES($1,$2,true,'',$3,'','')
+             RETURNING id`,
+            first(in.Name, "KEY user"), phone, role).Scan(&id)
+        if err != nil {
+            write(w, 500, map[string]string{"error": "не удалось создать пользователя"})
+            return
+        }
+    } else {
+        // Существующий — просто флагуем телефон.
+        _, _ = tx.Exec(ctx, `UPDATE users SET phone_verified=true WHERE id=$1`, id)
+    }
+
+    if err := tx.Commit(ctx); err != nil {
+        write(w, 500, map[string]string{"error": "не удалось подтвердить код"})
+        return
+    }
+
+    t, _ := a.token(id, role)
+    write(w, 200, map[string]any{
+        "token": t,
+        "user": map[string]any{"id": id, "phone": phone, "role": role},
+    })
 }
 
 func first(v, d string) string {
@@ -638,8 +806,7 @@ func ensureCarPhotosSchema(ctx context.Context, db *pgxpool.Pool) error {
 	if exists {
 		return nil
 	}
-	path := filepath.Join("/app", "migrations", "007_car_photos.sql")
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "007_car_photos.sql"))
 	if err != nil {
 		return err
 	}
@@ -653,7 +820,7 @@ func (a *App) cars(w http.ResponseWriter, r *http.Request) {
 	case "GET":
 		rows, err := a.db.Query(r.Context(), `SELECT c.id,c.brand,c.model,c.plate,c.year,c.status,c.revenue,c.location,c.daily_price,c.mileage,c.color,c.vin,c.public_enabled,c.category,c.seats,c.transmission,c.fuel,c.description,c.image_url,c.deposit,c.engine_volume,c.horsepower,c.drive_type,c.fuel_consumption,c.tank_volume,c.maintenance_interval,
 COALESCE((SELECT sum(e.amount) FROM car_expenses e WHERE e.car_id=c.id),0),
-COALESCE((SELECT sum(COALESCE(r.final_total,r.amount,0)) FROM rentals r WHERE (r.car_id=c.id OR (r.car_id IS NULL AND lower(trim(r.car_name))=lower(trim(c.brand||' '||c.model)))) AND r.status NOT IN ('cancelled','rejected','expired')),0)
+COALESCE((SELECT sum(COALESCE(r.final_total,r.amount,0)) FROM rentals r WHERE r.car_id=c.id AND r.status NOT IN ('cancelled','rejected','expired')),0)
 FROM cars c WHERE c.owner_id=$1 ORDER BY c.id DESC`, id)
 		if err != nil {
 			write(w, 500, map[string]string{"error": err.Error()})
@@ -761,7 +928,7 @@ func (a *App) carPhotos(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		name := hex.EncodeToString(rb[:]) + ext
-		path := filepath.Join("/app/uploads/cars", name)
+		path := filepath.Join(uploadsDir(), "cars", name)
 		dst, err := os.Create(path)
 		if err != nil {
 			write(w, 500, map[string]string{"error": "не удалось сохранить фото"})
@@ -800,7 +967,7 @@ func (a *App) carPhotos(w http.ResponseWriter, r *http.Request) {
 			write(w, 404, map[string]string{"error": "фото не найдено"})
 			return
 		}
-		_ = os.Remove(filepath.Join("/app", strings.TrimPrefix(url, "/")))
+		_ = os.Remove(filepath.Join(appDir(), strings.TrimPrefix(url, "/")))
 		var primary string
 		_ = a.db.QueryRow(r.Context(), `SELECT url FROM car_photos WHERE car_id=$1 ORDER BY id ASC LIMIT 1`, id).Scan(&primary)
 		_, _ = a.db.Exec(r.Context(), `UPDATE car_photos SET is_primary=false WHERE car_id=$1`, id)
@@ -828,7 +995,7 @@ func (a *App) carFinance(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" {
 		var earnings, expenses float64
-		_ = a.db.QueryRow(r.Context(), `SELECT COALESCE(sum(COALESCE(final_total,amount,0)),0) FROM rentals WHERE (car_id=$1 OR (car_id IS NULL AND lower(trim(car_name))=lower(trim((SELECT brand||' '||model FROM cars WHERE id=$1))))) AND status NOT IN ('cancelled','rejected','expired')`, id).Scan(&earnings)
+		_ = a.db.QueryRow(r.Context(), `SELECT COALESCE(sum(COALESCE(final_total,amount,0)),0) FROM rentals WHERE car_id=$1 AND status NOT IN ('cancelled','rejected','expired')`, id).Scan(&earnings)
 		_ = a.db.QueryRow(r.Context(), `SELECT COALESCE(sum(amount),0) FROM car_expenses WHERE car_id=$1`, id).Scan(&expenses)
 		rows, _ := a.db.Query(r.Context(), `SELECT id,amount,expense_type,note,created_at FROM car_expenses WHERE car_id=$1 ORDER BY created_at DESC,id DESC`, id)
 		expensesList := []map[string]any{}
@@ -844,7 +1011,7 @@ func (a *App) carFinance(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		dealsRows, _ := a.db.Query(r.Context(), `SELECT id,COALESCE(booking_code,''),client_name,COALESCE(final_total,amount),starts_at FROM rentals WHERE (car_id=$1 OR (car_id IS NULL AND lower(trim(car_name))=lower(trim((SELECT brand||' '||model FROM cars WHERE id=$1))))) AND status NOT IN ('cancelled','rejected','expired') ORDER BY starts_at DESC NULLS LAST,id DESC LIMIT 30`, id)
+		dealsRows, _ := a.db.Query(r.Context(), `SELECT id,COALESCE(booking_code,''),client_name,COALESCE(final_total,amount),starts_at FROM rentals WHERE car_id=$1 AND status NOT IN ('cancelled','rejected','expired') ORDER BY starts_at DESC NULLS LAST,id DESC LIMIT 30`, id)
 		deals := []map[string]any{}
 		if dealsRows != nil {
 			defer dealsRows.Close()
@@ -987,15 +1154,85 @@ func (a *App) carByID(w http.ResponseWriter, r *http.Request) {
 	}
 	owner := userID(r.Context())
 	if r.Method == "PATCH" {
-		var c Car
-		if decode(r, &c) != nil {
+		var in struct {
+			Status         *string  `json:"status"`
+			DailyPrice     *float64 `json:"daily_price"`
+			Location       *string  `json:"location"`
+			Mileage        *int     `json:"mileage"`
+			PublicEnabled  *bool    `json:"public_enabled"`
+			Category       *string  `json:"category"`
+			Seats          *int     `json:"seats"`
+			Transmission   *string  `json:"transmission"`
+			Fuel           *string  `json:"fuel"`
+			Description    *string  `json:"description"`
+			ImageURL       *string  `json:"image_url"`
+			Deposit        *float64 `json:"deposit"`
+			EngineVolume   *string  `json:"engine_volume"`
+			Horsepower     *int     `json:"horsepower"`
+			DriveType      *string  `json:"drive_type"`
+			FuelConsumption *string `json:"fuel_consumption"`
+			TankVolume     *string  `json:"tank_volume"`
+			MaintenanceInterval *int `json:"maintenance_interval"`
+		}
+		if decode(r, &in) != nil {
 			write(w, 400, map[string]string{"error": "invalid json"})
 			return
 		}
-		_, err := a.db.Exec(r.Context(), `UPDATE cars SET status=COALESCE(NULLIF($1,''),status),daily_price=CASE WHEN $2>=0 THEN $2 ELSE daily_price END,location=COALESCE(NULLIF($3,''),location),mileage=CASE WHEN $4>=0 THEN $4 ELSE mileage END,public_enabled=$5,category=COALESCE(NULLIF($6,''),category),seats=CASE WHEN $7>0 THEN $7 ELSE seats END,transmission=COALESCE(NULLIF($8,''),transmission),fuel=COALESCE(NULLIF($9,''),fuel),description=COALESCE(NULLIF($10,''),description),image_url=COALESCE(NULLIF($11,''),image_url),deposit=CASE WHEN $12>0 THEN $12 ELSE deposit END WHERE id=$13 AND owner_id=$14`,
-			c.Status, c.DailyPrice, c.Location, c.Mileage, c.PublicEnabled, c.Category, c.Seats, c.Transmission, c.Fuel, c.Description, c.ImageURL, c.Deposit, id, owner)
+
+		// Валидация значений, если они переданы.
+		if in.Status != nil {
+			s := *in.Status
+			if !contains([]string{"available", "rented", "maintenance"}, s) {
+				write(w, 422, map[string]string{"error": "недопустимый статус"})
+				return
+			}
+		}
+		if in.DailyPrice != nil && *in.DailyPrice < 0 {
+			write(w, 422, map[string]string{"error": "цена не может быть отрицательной"})
+			return
+		}
+		if in.Mileage != nil && *in.Mileage < 0 {
+			write(w, 422, map[string]string{"error": "пробег не может быть отрицательным"})
+			return
+		}
+		if in.Seats != nil && *in.Seats < 1 {
+			write(w, 422, map[string]string{"error": "мест должно быть минимум 1"})
+			return
+		}
+
+		tag, err := a.db.Exec(r.Context(), `
+			UPDATE cars SET
+				status               = COALESCE($1, status),
+				daily_price          = COALESCE($2, daily_price),
+				location             = COALESCE($3, location),
+				mileage              = COALESCE($4, mileage),
+				public_enabled       = COALESCE($5, public_enabled),
+				category             = COALESCE($6, category),
+				seats                = COALESCE($7, seats),
+				transmission         = COALESCE($8, transmission),
+				fuel                 = COALESCE($9, fuel),
+				description          = COALESCE($10, description),
+				image_url            = COALESCE($11, image_url),
+				deposit              = COALESCE($12, deposit),
+				engine_volume        = COALESCE($13, engine_volume),
+				horsepower           = COALESCE($14, horsepower),
+				drive_type           = COALESCE($15, drive_type),
+				fuel_consumption     = COALESCE($16, fuel_consumption),
+				tank_volume          = COALESCE($17, tank_volume),
+				maintenance_interval = COALESCE($18, maintenance_interval)
+			WHERE id=$19 AND owner_id=$20`,
+			in.Status, in.DailyPrice, in.Location, in.Mileage,
+			in.PublicEnabled, in.Category, in.Seats, in.Transmission,
+			in.Fuel, in.Description, in.ImageURL, in.Deposit,
+			in.EngineVolume, in.Horsepower, in.DriveType,
+			in.FuelConsumption, in.TankVolume, in.MaintenanceInterval,
+			id, owner)
 		if err != nil {
 			write(w, 500, map[string]string{"error": "не удалось обновить автомобиль"})
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			write(w, 404, map[string]string{"error": "автомобиль не найден"})
 			return
 		}
 		write(w, 200, map[string]bool{"ok": true})
@@ -1017,7 +1254,7 @@ func (a *App) rentals(w http.ResponseWriter, r *http.Request) {
 	owner := userID(r.Context())
 	if r.Method == "POST" {
 		var in struct {
-			CarName     string  `json:"car_name"`
+			CarID       int64   `json:"car_id"`
 			ClientName  string  `json:"client_name"`
 			ClientPhone string  `json:"client_phone"`
 			Status      string  `json:"status"`
@@ -1029,16 +1266,97 @@ func (a *App) rentals(w http.ResponseWriter, r *http.Request) {
 			write(w, 400, map[string]string{"error": "invalid json"})
 			return
 		}
-		status := first(in.Status, "pending")
+		if in.CarID <= 0 {
+			write(w, 422, map[string]string{"error": "укажите автомобиль"})
+			return
+		}
+		if strings.TrimSpace(in.ClientName) == "" {
+			write(w, 422, map[string]string{"error": "укажите имя клиента"})
+			return
+		}
+		if !contains([]string{"hold", "pending", "review", "confirmed", "preparing", "active"}, in.Status) {
+			in.Status = "pending"
+		}
+
+		st, en, err := parseBookingTimes(in.StartsAt, in.EndsAt)
+		if err != nil {
+			write(w, 422, map[string]string{"error": "укажите корректные даты аренды"})
+			return
+		}
+
+		ctx := r.Context()
+		tx, err := a.db.Begin(ctx)
+		if err != nil {
+			write(w, 500, map[string]string{"error": "transaction error"})
+			return
+		}
+		defer tx.Rollback(ctx)
+
+		// Проверка владельца + блокировка строки машины для проверки пересечений.
+		var carName string
+		var ownerID int64
+		err = tx.QueryRow(ctx,
+			`SELECT owner_id, brand||' '||model FROM cars WHERE id=$1 AND owner_id=$2 FOR UPDATE`,
+			in.CarID, owner).Scan(&ownerID, &carName)
+		if err != nil {
+			write(w, 404, map[string]string{"error": "автомобиль не найден"})
+			return
+		}
+
+		// Проверка пересечения дат с существующими арендами.
+		var overlap bool
+		err = tx.QueryRow(ctx,
+			`SELECT EXISTS(
+				SELECT 1 FROM rentals
+				WHERE car_id=$1
+				AND status IN ('hold','pending','review','confirmed','preparing','active')
+				AND (status<>'hold' OR hold_expires_at IS NULL OR hold_expires_at>now())
+				AND starts_at < $3 AND ends_at > $2
+			)`, in.CarID, st, en).Scan(&overlap)
+		if err != nil {
+			write(w, 500, map[string]string{"error": "не удалось проверить доступность"})
+			return
+		}
+		if overlap {
+			write(w, 409, map[string]string{"error": "автомобиль занят в выбранный период"})
+			return
+		}
+
 		var id int64
-		err := a.db.QueryRow(r.Context(), `INSERT INTO rentals(owner_id,car_name,client_name,client_phone,status,amount,final_total,starts_at,ends_at) VALUES($1,$2,$3,$4,$5,$6,$6,NULLIF($7,'')::timestamptz,NULLIF($8,'')::timestamptz) RETURNING id`,
-			owner, in.CarName, in.ClientName, normalizePhone(in.ClientPhone), status, in.Amount, in.StartsAt, in.EndsAt).Scan(&id)
+		err = tx.QueryRow(ctx,
+			`INSERT INTO rentals(owner_id,car_id,car_name,client_name,client_phone,status,amount,final_total,starts_at,ends_at,source,payment_status)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,'owner','unpaid')
+			RETURNING id`,
+			owner, in.CarID, carName, strings.TrimSpace(in.ClientName),
+			normalizePhone(in.ClientPhone), in.Status, in.Amount, st, en).Scan(&id)
 		if err != nil {
 			write(w, 500, map[string]string{"error": "не удалось создать аренду"})
 			return
 		}
-		_, _ = a.db.Exec(r.Context(), `INSERT INTO rental_events(rental_id,actor_id,actor_role,event_type,to_status,payload) VALUES($1,$2,'owner','manual_created',$3,$4::jsonb)`, id, owner, status, mustJSON(map[string]any{"source": "owner"}))
-		write(w, 201, map[string]any{"id": id, "ok": true})
+
+		code := fmt.Sprintf("KEY-%06d", id)
+		_, _ = tx.Exec(ctx, `UPDATE rentals SET booking_code=$1 WHERE id=$2`, code, id)
+
+		_, _ = tx.Exec(ctx,
+			`INSERT INTO rental_events(rental_id,actor_id,actor_role,event_type,to_status,payload)
+			VALUES($1,$2,'owner','manual_created',$3,$4::jsonb)`,
+			id, owner, in.Status, mustJSON(map[string]any{"source": "owner"}))
+
+		// Если сразу активна — помечаем машину как rented.
+		if in.Status == "active" {
+			_, _ = tx.Exec(ctx, `UPDATE cars SET status='rented' WHERE id=$1`, in.CarID)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			write(w, 500, map[string]string{"error": "не удалось подтвердить аренду"})
+			return
+		}
+
+		write(w, 201, map[string]any{
+			"id": id, "booking_code": code, "car_id": in.CarID,
+			"car": carName, "status": in.Status, "amount": in.Amount,
+			"starts_at": st, "ends_at": en,
+		})
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `SELECT id,COALESCE(booking_code,''),car_name,client_name,client_phone,status,amount,deposit,starts_at,ends_at,payment_status,COALESCE(final_total,amount) FROM rentals WHERE owner_id=$1 ORDER BY starts_at DESC NULLS LAST,id DESC`, owner)
@@ -1134,7 +1452,7 @@ func (a *App) transitionRental(ctx context.Context, rentalID, actorID int64, act
 		return err
 	}
 	if to == "completed" {
-		_, _ = tx.Exec(ctx, `UPDATE cars c SET status='available', revenue=c.revenue+r.final_total FROM rentals r WHERE r.id=$1 AND c.id=r.car_id`, rentalID)
+    	_, _ = tx.Exec(ctx, `UPDATE cars c SET status='available', revenue=c.revenue + COALESCE(NULLIF(r.final_total,0), r.amount, 0) FROM rentals r WHERE r.id=$1 AND c.id=r.car_id`, rentalID)
 	} else if to == "active" {
 		_, _ = tx.Exec(ctx, `UPDATE cars SET status='rented' WHERE id=(SELECT car_id FROM rentals WHERE id=$1)`, rentalID)
 	} else if to == "returned" || to == "cancelled" || to == "rejected" || to == "expired" {
@@ -1356,32 +1674,100 @@ func (a *App) rentalOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Type == "extra" {
-		if in.Qty < 1 {
-			in.Qty = 1
+		if in.Qty < 1 { in.Qty = 1 }
+		total := float64(in.Qty) * in.UnitPrice
+		tag, e := a.db.Exec(r.Context(),
+			`INSERT INTO rental_extras(rental_id, name, qty, unit_price, total)
+			SELECT r.id, $2::text, $3::int, $4::numeric, $5::numeric
+			FROM rentals r
+			WHERE r.id = $1::bigint AND r.owner_id = $6::bigint`,
+			id, in.Name, in.Qty, in.UnitPrice, total, owner)
+		if e != nil {
+			err = e
+		} else if tag.RowsAffected() == 0 {
+			err = fmt.Errorf("rental %d не найден для владельца %d", id, owner)
 		}
-		_, err = a.db.Exec(r.Context(), `INSERT INTO rental_extras(rental_id,name,qty,unit_price,total) SELECT $1,$2,$3,$4,$3*$4 FROM rentals WHERE id=$1 AND owner_id=$5`, id, in.Name, in.Qty, in.UnitPrice, owner)
 		if err == nil {
-			_, _ = a.db.Exec(r.Context(), `UPDATE rentals SET final_total=GREATEST(amount+COALESCE((SELECT sum(total) FROM rental_extras WHERE rental_id=$1),0)+COALESCE((SELECT sum(CASE WHEN adjustment_type IN ('late_fee','damage_fee','other') THEN amount ELSE -amount END) FROM rental_adjustments WHERE rental_id=$1),0),0),updated_at=now() WHERE id=$1 AND owner_id=$2`, id, owner)
+			_, _ = a.db.Exec(r.Context(),
+				`UPDATE rentals SET final_total = calculate_rental_final_total(id), updated_at=now()
+				WHERE id=$1 AND owner_id=$2`,
+				id, owner)
 		}
 	} else if in.Type == "payment" {
-		_, err = a.db.Exec(r.Context(), `INSERT INTO rental_payments(rental_id,payment_type,status,amount,provider) SELECT $1,$2,'paid',$3,'mock' FROM rentals WHERE id=$1 AND owner_id=$4`, id, first(in.PaymentType, "rental"), in.Amount, owner)
-		if err == nil {
-			_, _ = a.db.Exec(r.Context(), `UPDATE rentals SET payment_status='paid',updated_at=now() WHERE id=$1 AND owner_id=$2`, id, owner)
+		if in.Amount <= 0 {
+			write(w, 422, map[string]string{"error": "укажите положительную сумму платежа"})
+			return
+		}
+		tag, e := a.db.Exec(r.Context(),
+			`INSERT INTO rental_payments(rental_id, payment_type, status, amount, provider)
+			SELECT r.id, $2::text, 'paid', $3::numeric, 'mock'
+			FROM rentals r
+			WHERE r.id = $1::bigint AND r.owner_id = $4::bigint`,
+			id, first(in.PaymentType, "rental"), in.Amount, owner)
+		if e != nil {
+			err = e
+		} else if tag.RowsAffected() == 0 {
+			err = fmt.Errorf("rental %d не найден для владельца %d", id, owner)
+		} else {
+			_, _ = a.db.Exec(r.Context(),
+				`UPDATE rentals SET payment_status='paid', updated_at=now()
+				WHERE id=$1 AND owner_id=$2`,
+				id, owner)
 		}
 	} else if in.Type == "inspection" {
 		b, _ := json.Marshal(in.Photos)
-		_, err = a.db.Exec(r.Context(), `INSERT INTO rental_inspections(rental_id,kind,mileage,fuel_level,notes,photos) SELECT $1,$2,$3,$4,$5,$6::jsonb FROM rentals WHERE id=$1 AND owner_id=$7`, id, first(in.Kind, "pickup"), in.Mileage, in.Fuel, in.Note, string(b), owner)
+		tag, e := a.db.Exec(r.Context(),
+			`INSERT INTO rental_inspections(rental_id, kind, mileage, fuel_level, notes, photos)
+			SELECT r.id, $2::text, $3::int, $4::int, $5::text, $6::jsonb
+			FROM rentals r
+			WHERE r.id = $1::bigint AND r.owner_id = $7::bigint`,
+			id, first(in.Kind, "pickup"), in.Mileage, in.Fuel, in.Note, string(b), owner)
+		if e != nil {
+			err = e
+		} else if tag.RowsAffected() == 0 {
+			err = fmt.Errorf("rental %d не найден для владельца %d", id, owner)
+		}
 	} else if in.Type == "expense" {
-		_, err = a.db.Exec(r.Context(), `INSERT INTO rental_expenses(rental_id,expense_type,amount,note) SELECT $1,$2,$3,$4 FROM rentals WHERE id=$1 AND owner_id=$5`, id, first(in.Kind, "other"), in.Amount, in.Note, owner)
+		if in.Amount <= 0 {
+			write(w, 422, map[string]string{"error": "укажите положительную сумму расхода"})
+			return
+		}
+		tag, e := a.db.Exec(r.Context(),
+			`INSERT INTO rental_expenses(rental_id, expense_type, amount, note)
+			SELECT r.id, $2::text, $3::numeric, $4::text
+			FROM rentals r
+			WHERE r.id = $1::bigint AND r.owner_id = $5::bigint`,
+			id, first(in.Kind, "other"), in.Amount, in.Note, owner)
+		if e != nil {
+			err = e
+		} else if tag.RowsAffected() == 0 {
+			err = fmt.Errorf("rental %d не найден для владельца %d", id, owner)
+		}
 	} else if in.Type == "adjustment" {
 		kind := first(in.Kind, "other")
 		if !contains([]string{"late_fee", "damage_fee", "discount", "other"}, kind) || in.Amount == 0 {
 			write(w, 422, map[string]string{"error": "укажите тип и сумму корректировки"})
 			return
 		}
-		_, err = a.db.Exec(r.Context(), `INSERT INTO rental_adjustments(rental_id,adjustment_type,amount,note) SELECT $1,$2,$3,$4 FROM rentals WHERE id=$1 AND owner_id=$5`, id, kind, in.Amount, in.Note, owner)
-		if err == nil {
-			_, _ = a.db.Exec(r.Context(), `UPDATE rentals SET late_fee=COALESCE((SELECT sum(amount) FROM rental_adjustments WHERE rental_id=$1 AND adjustment_type='late_fee'),0), damage_fee=COALESCE((SELECT sum(amount) FROM rental_adjustments WHERE rental_id=$1 AND adjustment_type='damage_fee'),0), final_total=GREATEST(amount+COALESCE((SELECT sum(CASE WHEN adjustment_type IN ('late_fee','damage_fee','other') THEN amount ELSE -amount END) FROM rental_adjustments WHERE rental_id=$1),0)+COALESCE((SELECT sum(total) FROM rental_extras WHERE rental_id=$1),0),0),updated_at=now() WHERE id=$1 AND owner_id=$2`, id, owner)
+		tag, e := a.db.Exec(r.Context(),
+			`INSERT INTO rental_adjustments(rental_id, adjustment_type, amount, note)
+			SELECT r.id, $2::text, $3::numeric, $4::text
+			FROM rentals r
+			WHERE r.id = $1::bigint AND r.owner_id = $5::bigint`,
+			id, kind, in.Amount, in.Note, owner)
+		if e != nil {
+			err = e
+		} else if tag.RowsAffected() == 0 {
+			err = fmt.Errorf("rental %d не найден для владельца %d", id, owner)
+		} else {
+			_, _ = a.db.Exec(r.Context(),
+				`UPDATE rentals SET
+					late_fee   = COALESCE((SELECT sum(amount) FROM rental_adjustments WHERE rental_id=$1 AND adjustment_type='late_fee'), 0),
+					damage_fee = COALESCE((SELECT sum(amount) FROM rental_adjustments WHERE rental_id=$1 AND adjustment_type='damage_fee'), 0),
+					final_total = calculate_rental_final_total(id),
+					updated_at = now()
+				WHERE id=$1 AND owner_id=$2`,
+				id, owner)
 		}
 	} else if in.Type == "deposit" {
 		kind := first(in.Kind, "hold")
@@ -1389,7 +1775,17 @@ func (a *App) rentalOps(w http.ResponseWriter, r *http.Request) {
 			write(w, 422, map[string]string{"error": "укажите операцию и положительную сумму депозита"})
 			return
 		}
-		_, err = a.db.Exec(r.Context(), `INSERT INTO deposit_transactions(rental_id,transaction_type,amount,note) SELECT $1,$2,$3,$4 FROM rentals WHERE id=$1 AND owner_id=$5`, id, kind, in.Amount, in.Note, owner)
+		tag, e := a.db.Exec(r.Context(),
+			`INSERT INTO deposit_transactions(rental_id, transaction_type, amount, note)
+			SELECT r.id, $2::text, $3::numeric, $4::text
+			FROM rentals r
+			WHERE r.id = $1::bigint AND r.owner_id = $5::bigint`,
+			id, kind, in.Amount, in.Note, owner)
+		if e != nil {
+			err = e
+		} else if tag.RowsAffected() == 0 {
+			err = fmt.Errorf("rental %d не найден для владельца %d", id, owner)
+		}
 	} else if in.Type == "extension" {
 		if in.NewEnd == "" {
 			write(w, 422, map[string]string{"error": "укажите новую дату возврата"})
@@ -1438,7 +1834,14 @@ func (a *App) rentalOps(w http.ResponseWriter, r *http.Request) {
 		_, _ = a.db.Exec(r.Context(), `UPDATE rentals SET odometer_start=COALESCE($1,odometer_start),fuel_start=COALESCE($2,fuel_start),updated_at=now() WHERE id=$3 AND owner_id=$4`, in.Mileage, in.Fuel, id, owner)
 	}
 	if in.Type == "inspection" && in.Kind == "return" {
-		_, _ = a.db.Exec(r.Context(), `UPDATE rentals SET odometer_end=COALESCE($1,odometer_end),fuel_end=COALESCE($2,fuel_end),final_total=GREATEST(amount+COALESCE((SELECT sum(total) FROM rental_extras WHERE rental_id=$3),0)+COALESCE(late_fee,0)+COALESCE(damage_fee,0),0),updated_at=now() WHERE id=$3 AND owner_id=$4`, in.Mileage, in.Fuel, id, owner)
+		_, _ = a.db.Exec(r.Context(),
+			`UPDATE rentals SET
+				odometer_end = COALESCE($1, odometer_end),
+				fuel_end     = COALESCE($2, fuel_end),
+				final_total  = calculate_rental_final_total(id),
+				updated_at   = now()
+			WHERE id=$3 AND owner_id=$4`,
+			in.Mileage, in.Fuel, id, owner)
 	}
 	write(w, 201, map[string]bool{"ok": true})
 }
@@ -1722,6 +2125,10 @@ func (a *App) leads(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) customerRegister(w http.ResponseWriter, r *http.Request) {
+	if !a.rlRegister.allow("reg-ip:" + clientIP(r)) {
+        write(w, 429, map[string]string{"error": "слишком много регистраций с этого IP"})
+        return
+    }
 	var in struct{ Name, Phone, Email, Password string }
 	if decode(r, &in) != nil {
 		write(w, 400, map[string]string{"error": "invalid json"})
@@ -1750,11 +2157,19 @@ func (a *App) customerRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) customerLogin(w http.ResponseWriter, r *http.Request) {
+	if !a.rlLogin.allow("clogin-ip:" + clientIP(r)) {
+        write(w, 429, map[string]string{"error": "слишком много попыток входа"})
+        return
+    }
 	var in struct{ Identifier, Password string }
 	if decode(r, &in) != nil {
 		write(w, 400, map[string]string{"error": "invalid json"})
 		return
 	}
+	if !a.rlLogin.allow("clogin-id:" + strings.ToLower(strings.TrimSpace(in.Identifier))) {
+        write(w, 429, map[string]string{"error": "слишком много попыток для этого аккаунта"})
+        return
+    }
 	idf := strings.TrimSpace(in.Identifier)
 	phone := normalizePhone(idf)
 	var u User
@@ -2017,13 +2432,18 @@ func (a *App) bookings(w http.ResponseWriter, r *http.Request) {
 	var carName string
 	var price, deposit float64
 	var status string
-	err = tx.QueryRow(r.Context(), `SELECT owner_id,brand||' '||model,daily_price,deposit,status FROM cars WHERE id=$1 AND public_enabled FOR UPDATE`, in.CarID).Scan(&ownerID, &carName, &price, &deposit, &status)
+	err = tx.QueryRow(r.Context(),
+		`SELECT owner_id, brand||' '||model, daily_price, deposit, status
+		FROM cars WHERE id=$1 AND public_enabled FOR UPDATE`,
+		in.CarID).Scan(&ownerID, &carName, &price, &deposit, &status)
 	if err != nil {
 		write(w, 404, map[string]string{"error": "автомобиль не найден"})
 		return
 	}
-	if status != "available" {
-		write(w, 409, map[string]string{"error": "автомобиль сейчас недоступен"})
+	// Машина на сервисе — бронировать нельзя, независимо от дат.
+	// Статус "rented" не блокирует будущие брони: календарь проверяется ниже.
+	if status == "maintenance" {
+		write(w, 409, map[string]string{"error": "автомобиль на обслуживании"})
 		return
 	}
 	var overlap bool
@@ -2144,15 +2564,29 @@ func (a *App) bookingByID(w http.ResponseWriter, r *http.Request) {
 		write(w, 403, map[string]string{"error": "access denied"})
 		return
 	}
-	if !contains([]string{"confirmed", "active", "completed", "cancelled", "rejected"}, in.Status) {
+
+	allowedOwnerStatuses := []string{
+		"confirmed", "preparing", "active",
+		"returned", "completed",
+		"cancelled", "rejected",
+	}
+	if !contains(allowedOwnerStatuses, in.Status) {
 		write(w, 422, map[string]string{"error": "invalid status"})
 		return
 	}
-	_, err = a.db.Exec(r.Context(), `UPDATE rentals SET status=$1,cancellation_reason=$2 WHERE id=$3 AND owner_id=$4`, in.Status, in.Reason, id, userID(r.Context()))
-	if err != nil {
-		write(w, 500, map[string]string{"error": "не удалось обновить бронь"})
+
+	if err := a.transitionRental(r.Context(), id, userID(r.Context()), "owner", in.Status, in.Reason); err != nil {
+		code := 409
+		switch {
+		case errors.Is(err, errRentalNotFound):
+			code = 404
+		case strings.HasPrefix(err.Error(), "нельзя перевести"):
+			code = 422
+		}
+		write(w, code, map[string]string{"error": err.Error()})
 		return
 	}
+
 	write(w, 200, map[string]bool{"ok": true})
 }
 

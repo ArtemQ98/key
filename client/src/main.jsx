@@ -1240,13 +1240,14 @@ function Rentals() {
     [error, setError] = useState("");
   const [show, setShow] = useState(false),
     [form, setForm] = useState({
-      car_name: "",
+      car_id: 0,
       client_name: "",
       client_phone: "",
       amount: 0,
       starts_at: "",
       ends_at: "",
     });
+  const [cars, setCars] = useState([]);
   const today = dateOnly(new Date()),
     endDate = dateOnly(new Date(Date.now() + range * 86400000));
   async function load() {
@@ -1267,6 +1268,7 @@ function Rentals() {
   }
   useEffect(() => {
     load();
+    api("/cars").then(setCars).catch(() => {});
   }, [range]);
   async function status(id, status) {
     try {
@@ -1289,6 +1291,10 @@ function Rentals() {
   }
   async function add(e) {
     e.preventDefault();
+    if (!form.car_id) {
+      alert("Выберите автомобиль");
+      return;
+    }
     try {
       await api("/rentals", {
         method: "POST",
@@ -1296,7 +1302,7 @@ function Rentals() {
       });
       setShow(false);
       setForm({
-        car_name: "",
+        car_id: 0,
         client_name: "",
         client_phone: "",
         amount: 0,
@@ -1597,12 +1603,18 @@ function Rentals() {
         <Modal title="Новая аренда" close={() => setShow(false)}>
           <form className="modal-form" onSubmit={add}>
             <Field label="Автомобиль">
-              <input
-                value={form.car_name}
-                onChange={(e) => setForm({ ...form, car_name: e.target.value })}
-                placeholder="Kia K5"
+              <select
+                value={form.car_id}
+                onChange={(e) => setForm({ ...form, car_id: Number(e.target.value) })}
                 required
-              />
+              >
+                <option value={0}>— выберите автомобиль —</option>
+                {cars.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.brand} {c.model} · {c.plate} · {money(c.daily_price)}/сут
+                  </option>
+                ))}
+              </select>
             </Field>
             <div className="two">
               <Field label="Клиент">

@@ -21,6 +21,7 @@ services:
       DATABASE_URL: postgres://key:key@db:5432/key?sslmode=disable
       JWT_SECRET: change-this-before-production
       CORS_ORIGIN: http://localhost
+      APP_DIR: /app
     ports: ["8080:8080"]
     depends_on:
       db:
