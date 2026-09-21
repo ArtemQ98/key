@@ -1,0 +1,22 @@
+keyfleet.ru {
+    encode gzip zstd
+
+    handle /api/* {
+        reverse_proxy api:8080
+    }
+
+    handle /uploads/* {
+        reverse_proxy api:8080
+    }
+
+    handle {
+        reverse_proxy client:80
+    }
+
+    log {
+        output file /data/access.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}

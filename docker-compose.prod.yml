@@ -1,0 +1,87 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: key
+      POSTGRES_USER: key
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U key -d key"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - key-net
+
+  api:
+    build: ./server
+    restart: unless-stopped
+    volumes:
+      - uploads_data:/app/uploads
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - key-net
+
+  client:
+    build: ./client
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - key-net
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - client
+      - api
+    networks:
+      - key-net
+
+  backup:
+    build: ./backup
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: key
+      DB_NAME: key
+      BACKUP_DIR: /backups
+      KEEP_DAYS: 7
+      BACKUP_SCHEDULE: "0 3 * * *"
+      TZ: Europe/Moscow
+    volumes:
+      - backups_data:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - key-net
+
+volumes:
+  postgres_data:
+  uploads_data:
+  caddy_data:
+  caddy_config:
+  backups_data:
+
+networks:
+  key-net:
+    driver: bridge
