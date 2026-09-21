@@ -28,17 +28,17 @@ const NEXT_STATUS: Partial<Record<RentalStatus, RentalStatus[]>> = {
   returned: ["completed"],
 };
 
-const STATUS_LABELS: Record<RentalStatus, string> = {
-  hold: "Подтвердить",
-  pending: "Подтвердить",
-  review: "Одобрить",
-  confirmed: "Подготовить",
-  preparing: "Выдать авто",
-  active: "Принять возврат",
-  returned: "Закрыть",
-  completed: "Завершена",
+const ACTION_LABELS: Record<RentalStatus, string> = {
+  hold: "Удержать",
+  pending: "Вернуть в новые",
+  review: "Отправить на проверку",
+  confirmed: "Подтвердить",
+  preparing: "Начать подготовку",
+  active: "Выдать авто",
+  returned: "Принять возврат",
+  completed: "Закрыть",
   cancelled: "Отменить",
-  expired: "Истекла",
+  expired: "Пометить истёкшей",
   rejected: "Отклонить",
 };
 
@@ -130,7 +130,7 @@ export function RentalDetailModal({
                       }}
                       loading={updateStatus.isPending}
                     >
-                      {STATUS_LABELS[s]}
+                      {ACTION_LABELS[s]}
                       <ChevronRight className="h-3.5 w-3.5" />
                     </Button>
                   );

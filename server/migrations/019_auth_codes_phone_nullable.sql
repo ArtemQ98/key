@@ -1,0 +1,1 @@
+ALTER TABLE auth_codes ALTER COLUMN phone DROP NOT NULL;

@@ -59,12 +59,15 @@ async function request<T = unknown>(
   }
 
   if (res.status === 401) {
-    if (auth === "owner") {
-      localStorage.removeItem(OWNER_TOKEN_KEY);
-      window.dispatchEvent(new Event("key:logout"));
-    } else if (auth === "customer") {
-      localStorage.removeItem(CUSTOMER_TOKEN_KEY);
-      window.dispatchEvent(new Event("key:customer-logout"));
+    const isAuthEndpoint = path.startsWith("/auth/");
+    if (!isAuthEndpoint) {
+      if (auth === "owner") {
+        localStorage.removeItem(OWNER_TOKEN_KEY);
+        window.dispatchEvent(new Event("key:logout"));
+      } else if (auth === "customer") {
+        localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+        window.dispatchEvent(new Event("key:customer-logout"));
+      }
     }
   }
 

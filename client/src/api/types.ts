@@ -45,6 +45,12 @@ export interface Car {
   maintenance_interval: number;
   earnings: number;
   expenses: number;
+  rental_terms: RentalTerm[];
+}
+
+export interface RentalTerm {
+  title: string;
+  items: string[];
 }
 
 export type RentalStatus =
@@ -128,6 +134,8 @@ export interface PublicCar {
   fleet_city: string;
   fleet_rating: number;
   owner: string;
+  fleet_avatar_url: string; 
+  rental_terms: RentalTerm[];
 }
 
 export interface PublicFleet {
@@ -139,6 +147,18 @@ export interface PublicFleet {
   rating: number;
   owner: string;
   available_cars: number;
+  avatar_url: string;
+}
+
+export interface FleetProfile {
+  id: number;
+  slug: string;
+  title: string;
+  description: string;
+  city: string;
+  published: boolean;
+  rating: number;
+  avatar_url: string;
 }
 
 export interface CustomerBooking {

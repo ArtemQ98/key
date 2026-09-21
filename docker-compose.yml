@@ -17,12 +17,8 @@ services:
     build: ./server
     volumes:
       - uploads_data:/app/uploads
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://key:key@db:5432/key?sslmode=disable}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
-      APP_DIR: ${APP_DIR:-/app}
-      LISTEN_ADDR: ${LISTEN_ADDR:-:8080}
+    env_file:
+      - .env
     ports: ["8080:8080"]
     depends_on:
       db:

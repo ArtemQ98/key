@@ -136,6 +136,7 @@ export function MarketplacePage() {
                   value={from}
                   min={todayISO()}
                   onChange={(e) => setFrom(e.target.value)}
+                  className="min-w-0 appearance-none"
                 />
               </Field>
               <Field label="Возврат">
@@ -144,6 +145,7 @@ export function MarketplacePage() {
                   value={to}
                   min={from}
                   onChange={(e) => setTo(e.target.value)}
+                  className="min-w-0 appearance-none"
                 />
               </Field>
               <Field label="Что ищете?">
@@ -195,7 +197,7 @@ export function MarketplacePage() {
               <MarketCarCard
                 key={c.id}
                 car={c}
-                onClick={() => setSelectedCar(c)}
+                onClick={() => navigate(`/car/${c.id}`)}
               />
             ))}
           </div>

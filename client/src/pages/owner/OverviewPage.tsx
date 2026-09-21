@@ -11,9 +11,9 @@ import {
   FleetMini,
   MetricCard,
   RecentRentals,
+  RevenueChart,
   TodoList,
 } from "@/features/dashboard";
-import { money } from "@/lib/format";
 
 export function OverviewPage() {
   const user = useAuthStore((s) => s.user);
@@ -31,6 +31,7 @@ export function OverviewPage() {
     day: "numeric",
     month: "long",
   });
+  
 
   return (
     <>
@@ -136,25 +137,7 @@ export function OverviewPage() {
             <CardTitle>Выручка за месяц</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-semibold tracking-tight">
-              {money(dashboard?.monthRevenue ?? 0)}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Всего заработано: {money(dashboard?.revenue ?? 0)}
-            </p>
-            <div className="mt-4 flex h-24 items-end gap-1">
-              {/* Простая визуализация активности */}
-              {Array.from({ length: 12 }).map((_, i) => {
-                const height = 20 + ((i * 17 + 13) % 80);
-                return (
-                  <div
-                    key={i}
-                    className="flex-1 rounded-t bg-foreground/10"
-                    style={{ height: `${height}%` }}
-                  />
-                );
-              })}
-            </div>
+            <RevenueChart />
           </CardContent>
         </Card>
       </div>

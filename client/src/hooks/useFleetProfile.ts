@@ -26,3 +26,27 @@ export function useUpdateFleetProfile() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Ошибка"),
   });
 }
+
+export function useUploadFleetAvatar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => fleetApi.uploadAvatar(file),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fleetKeys.all });
+      toast.success("Аватарка обновлена");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Ошибка"),
+  });
+}
+
+export function useRemoveFleetAvatar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => fleetApi.removeAvatar(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: fleetKeys.all });
+      toast.success("Аватарка удалена");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Ошибка"),
+  });
+}

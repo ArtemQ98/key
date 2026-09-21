@@ -1,0 +1,2 @@
+ALTER TABLE cars
+    ADD COLUMN IF NOT EXISTS rental_terms JSONB NOT NULL DEFAULT '[]'::jsonb;

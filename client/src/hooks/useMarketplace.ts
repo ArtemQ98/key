@@ -8,6 +8,7 @@ export const marketplaceKeys = {
   car: (id: number) => [...marketplaceKeys.all, "car", id] as const,
   fleets: (params: { city?: string; q?: string }) =>
     [...marketplaceKeys.all, "fleets", params] as const,
+  fleet: (slug: string) => [...marketplaceKeys.all, "fleet", slug] as const,
   availability: (carId: number, from: string, to: string) =>
     [...marketplaceKeys.all, "availability", carId, from, to] as const,
 };
@@ -17,6 +18,15 @@ export function useMarketplaceCars(params: SearchCarsParams) {
     queryKey: marketplaceKeys.cars(params),
     queryFn: () => marketplaceApi.cars(params),
     staleTime: 30_000,
+  });
+}
+
+export function usePublicFleet(slug: string | null) {
+  return useQuery({
+    queryKey: marketplaceKeys.fleet(slug ?? ""),
+    queryFn: () => marketplaceApi.fleet(slug!),
+    enabled: !!slug,
+    staleTime: 60_000,
   });
 }
 

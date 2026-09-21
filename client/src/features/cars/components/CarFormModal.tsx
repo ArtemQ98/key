@@ -6,6 +6,7 @@ import { ArrowRight } from "lucide-react";
 import { Button, Field, Input, Modal, ModalBody, ModalFooter, ModalHeader, Select } from "@/components/ui";
 import { useCreateCar } from "@/hooks/useCars";
 import type { Car } from "@/api/types";
+import { RentalTermsEditor } from "./RentalTermsEditor";
 
 const schema = z.object({
   brand: z.string().min(1, "Укажите марку"),
@@ -24,6 +25,12 @@ const schema = z.object({
   fuel_consumption: z.string().optional(),
   tank_volume: z.string().optional(),
   maintenance_interval: z.coerce.number().int().min(0).optional(),
+  rental_terms: z.array(
+    z.object({
+      title: z.string(),
+      items: z.array(z.string()),
+    }),
+  ).optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -41,6 +48,8 @@ export function CarFormModal({ open, onOpenChange, onCreated }: CarFormModalProp
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     reset,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
@@ -62,6 +71,7 @@ export function CarFormModal({ open, onOpenChange, onCreated }: CarFormModalProp
       fuel_consumption: "",
       tank_volume: "",
       maintenance_interval: 10000,
+      rental_terms: [],
     },
   });
 
@@ -192,6 +202,21 @@ export function CarFormModal({ open, onOpenChange, onCreated }: CarFormModalProp
               <Input placeholder="60 л" {...register("tank_volume")} />
             </Field>
           </div>
+          <div className="border-t border-border pt-4">
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold">Условия аренды</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Владелец сам задаёт условия. Клиент увидит их на странице машины.
+            </p>
+          </div>
+
+          <RentalTermsEditor
+            value={watch("rental_terms") || []}
+            onChange={(terms) =>
+              setValue("rental_terms", terms, { shouldDirty: true })
+            }
+          />
+        </div>
 
           {serverError && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

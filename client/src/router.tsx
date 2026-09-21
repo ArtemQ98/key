@@ -69,11 +69,21 @@ const wrap = (el: ReactNode) => (
   </Suspense>
 );
 
+const CarDetailPage = lazy(() =>
+  import("@/pages/market/CarDetailPage").then((m) => ({ default: m.CarDetailPage })),
+);
+
+const FleetPage = lazy(() =>
+  import("@/pages/market/FleetPage").then((m) => ({ default: m.FleetPage })),
+);
+
 export const router = createBrowserRouter([
   // Marketplace
   { path: "/", element: wrap(<MarketplacePage />) },
   { path: "/login", element: wrap(<CustomerLoginPage />) },
   { path: "/account", element: wrap(<AccountPage />) },
+  { path: "/car/:id", element: wrap(<CarDetailPage />) },
+  { path: "/fleet/:slug", element: wrap(<FleetPage />) },
 
   // Owner auth
   { path: "/app/login", element: wrap(<LoginPage />) },

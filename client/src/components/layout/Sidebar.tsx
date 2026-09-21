@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui";
 import { Logo } from "./Logo";
 import type { User } from "@/api/types";
+import { useFleetProfile } from "@/hooks/useFleetProfile";
 
 const nav = [
   { to: "/app", label: "Обзор", icon: LayoutDashboard, end: true },
@@ -31,6 +32,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ user, onLogout, className }: SidebarProps) {
+  const { data: fleet } = useFleetProfile();
+  const avatarUrl = fleet?.avatar_url || "";
   return (
     <aside
       className={cn(
@@ -43,16 +46,24 @@ export function Sidebar({ user, onLogout, className }: SidebarProps) {
       </div>
 
       <div className="mx-3 mb-4 flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+      {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={user.company_name || "Автопарк"}
+          className="h-9 w-9 shrink-0 rounded-full object-cover"
+        />
+      ) : (
         <Avatar name={user.name || "В"} size="md" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">
-            {user.company_name || "Мой автопарк"}
-          </div>
-          <div className="truncate text-xs text-muted-foreground">
-            {user.city || "Россия"} · владелец
-          </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">
+          {user.company_name || "Мой автопарк"}
+        </div>
+        <div className="truncate text-xs text-muted-foreground">
+          {user.city || "Россия"} · владелец
         </div>
       </div>
+    </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
         {nav.map((item) => {

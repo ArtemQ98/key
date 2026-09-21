@@ -19,7 +19,7 @@ export function Field({
   children,
 }: FieldProps) {
   return (
-    <label className={cn("flex flex-col gap-1.5", className)}>
+    <label className={cn("flex min-w-0 w-full flex-col gap-1.5", className)}>
       {label && (
         <span className="text-xs font-medium text-muted-foreground">
           {label}

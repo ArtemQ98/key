@@ -8,6 +8,21 @@ export interface SearchCarsParams {
   to?: string;
 }
 
+export interface PublicFleetDetail {
+  id: number;
+  slug: string;
+  title: string;
+  description: string;
+  city: string;
+  rating: number;
+  owner: string;
+  avatar_url: string;
+  cars_count: number;
+  available: number;
+  min_price: number;
+  cars: PublicCar[];
+}
+
 const qs = (params: Record<string, unknown>): string => {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -27,6 +42,9 @@ export const marketplaceApi = {
 
   fleets: (params: { city?: string; q?: string } = {}) =>
     publicApi.get<PublicFleet[]>(`/public/fleets${qs({ ...params })}`),
+
+  fleet: (slug: string) =>
+  publicApi.get<PublicFleetDetail>(`/public/fleets/${slug}`),
 
   availabilityDates: (carId: number, from: string, to: string) =>
     publicApi.get<{ blocked: string[]; from: string; to: string }>(

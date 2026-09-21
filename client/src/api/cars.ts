@@ -1,5 +1,5 @@
 import { api } from "@/api/client";
-import type { Car, CarStatus } from "@/api/types";
+import type { Car, CarStatus, RentalTerm } from "@/api/types";
 
 export interface CarPatch {
   status?: CarStatus;
@@ -20,6 +20,7 @@ export interface CarPatch {
   fuel_consumption?: string;
   tank_volume?: string;
   maintenance_interval?: number;
+  rental_terms?: RentalTerm[];
 }
 
 export interface CarPhoto {

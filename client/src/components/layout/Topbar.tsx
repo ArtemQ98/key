@@ -3,6 +3,7 @@ import { Avatar, Button } from "@/components/ui";
 import { useUIStore } from "@/stores/ui";
 import { cn } from "@/lib/cn";
 import type { User } from "@/api/types";
+import { useFleetProfile } from "@/hooks/useFleetProfile";
 
 interface TopbarProps {
   user: User;
@@ -13,7 +14,8 @@ interface TopbarProps {
 
 export function Topbar({ user, title, alerts = 0, className }: TopbarProps) {
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
-
+  const { data: fleet } = useFleetProfile();
+  const avatarUrl = fleet?.avatar_url || "";
   return (
     <header
       className={cn(
@@ -50,7 +52,15 @@ export function Topbar({ user, title, alerts = 0, className }: TopbarProps) {
           )}
         </Button>
 
+        {avatarUrl ? (
+        <img
+          src={avatarUrl}
+          alt={user.company_name || user.name || "Аватар"}
+          className="ml-1 h-9 w-9 shrink-0 rounded-full object-cover"
+        />
+      ) : (
         <Avatar name={user.name || "В"} size="md" className="ml-1" />
+      )}
       </div>
     </header>
   );

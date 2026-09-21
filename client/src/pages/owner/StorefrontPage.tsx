@@ -20,6 +20,7 @@ import { useFleetProfile, useUpdateFleetProfile } from "@/hooks/useFleetProfile"
 import { useCars, useUpdateCar } from "@/hooks/useCars";
 import { money } from "@/lib/format";
 import { toast } from "sonner";
+import { AvatarUploader } from "@/features/storefront";
 
 const schema = z.object({
   title: z.string().min(1, "Укажите название"),
@@ -126,6 +127,11 @@ export function StorefrontPage() {
               </div>
             ) : (
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                <AvatarUploader
+                  currentUrl={profileQuery.data?.avatar_url || ""}
+                  title={profileQuery.data?.title || "KEY"}
+                />
+                <div className="border-t border-border" />
                 <Field label="Название" required error={errors.title?.message}>
                   <Input
                     placeholder="KEY Fleet"
