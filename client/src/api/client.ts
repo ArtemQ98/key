@@ -10,7 +10,7 @@ const CUSTOMER_TOKEN_KEY = "key_customer_token";
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
   auth?: "owner" | "customer" | "none";
-  raw?: boolean; // если true — body не будет сериализован в JSON
+  raw?: boolean;
 };
 
 async function request<T = unknown>(
@@ -25,13 +25,13 @@ async function request<T = unknown>(
     finalHeaders.set("Content-Type", "application/json");
   }
 
-  if (auth === "owner") {
-    const token = localStorage.getItem(OWNER_TOKEN_KEY);
-    if (token) finalHeaders.set("Authorization", `Bearer ${token}`);
-  } else if (auth === "customer") {
-    const token = localStorage.getItem(CUSTOMER_TOKEN_KEY);
-    if (token) finalHeaders.set("Authorization", `Bearer ${token}`);
-  }
+if (auth === "owner") {
+  const token = localStorage.getItem(OWNER_TOKEN_KEY);
+  if (token) finalHeaders.set("Authorization", `Bearer ${token}`);
+} else if (auth === "customer") {
+  const token = localStorage.getItem(CUSTOMER_TOKEN_KEY);
+  if (token) finalHeaders.set("Authorization", `Bearer ${token}`);
+}
 
   let requestBody: BodyInit | undefined;
   if (body instanceof FormData) {

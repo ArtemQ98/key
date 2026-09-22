@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowRight, Mail } from "lucide-react";
-import { Button, Field, Input } from "@/components/ui";
+import { Button, Checkbox, Field, Input } from "@/components/ui";
 import { publicApi, tokens } from "@/api/client";
 import { useCustomerAuthStore } from "@/stores/customerAuth";
 import { isApiError } from "@/lib/apiError";
@@ -28,6 +29,7 @@ export function CustomerAuthForm({ onSuccess, compact }: CustomerAuthFormProps) 
   const [code, setCode] = useState("");
   const [serverError, setServerError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   const fetchMe = useCustomerAuthStore((s) => s.fetchMe);
 
@@ -41,9 +43,9 @@ export function CustomerAuthForm({ onSuccess, compact }: CustomerAuthFormProps) 
   });
 
   async function onRequestCode(values: FormValues) {
-    console.log("[request-code] mode =", mode, "values =", values);
     if (busy) return;
     setServerError("");
+
     if (mode === "register") {
       if (!values.name?.trim()) {
         setServerError("Укажите имя");
@@ -53,7 +55,12 @@ export function CustomerAuthForm({ onSuccess, compact }: CustomerAuthFormProps) 
         setServerError("Укажите телефон");
         return;
       }
+      if (!agreed) {
+        setServerError("Подтвердите согласие на обработку персональных данных");
+        return;
+      }
     }
+
     setBusy(true);
     try {
       await publicApi.post("/auth/request-code", { email: values.email });
@@ -81,7 +88,6 @@ export function CustomerAuthForm({ onSuccess, compact }: CustomerAuthFormProps) 
         code,
         name: formData.name || undefined,
       };
-      // phone отправляем только при регистрации
       if (mode === "register" && formData.phone) {
         payload.phone = formData.phone;
       }
@@ -109,6 +115,7 @@ export function CustomerAuthForm({ onSuccess, compact }: CustomerAuthFormProps) 
     setStep("form");
     setCode("");
     setServerError("");
+    setAgreed(false);
     setFormData({ name: "", phone: "", email: "" });
   }
 
@@ -167,13 +174,43 @@ export function CustomerAuthForm({ onSuccess, compact }: CustomerAuthFormProps) 
             />
           </Field>
 
+          {mode === "register" && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-secondary/40 p-3">
+              <Checkbox
+                className="mt-0.5"
+                checked={agreed}
+                onCheckedChange={(v) => setAgreed(v === true)}
+              />
+              <span className="text-xs leading-relaxed text-muted-foreground">
+                Я принимаю{" "}
+                <Link
+                  to="/terms"
+                  target="_blank"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  пользовательское соглашение
+                </Link>{" "}
+                и даю согласие на{" "}
+                <Link
+                  to="/privacy"
+                  target="_blank"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  обработку персональных данных
+                </Link>
+              </span>
+            </label>
+          )}
+
           {serverError && <ErrorBox>{serverError}</ErrorBox>}
 
           <Button
             type="submit"
             className="w-full"
             loading={busy}
-            disabled={busy}
+            disabled={busy || (mode === "register" && !agreed)}
           >
             Получить код
             <ArrowRight className="h-4 w-4" />

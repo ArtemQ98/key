@@ -1,3 +1,5 @@
+import { RentalEvent } from "./rentals";
+
 export interface User {
   id: number;
   name: string;
@@ -177,6 +179,7 @@ export interface CustomerBooking {
   pickup_meeting_location: string;
   return_meeting_at: string | null;
   return_meeting_location: string;
+  events?: RentalEvent[];
 }
 
 export interface Client {

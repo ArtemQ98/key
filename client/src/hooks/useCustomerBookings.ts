@@ -5,11 +5,6 @@ import {
 } from "@/api/customerBookings";
 import { marketplaceKeys } from "./useMarketplace";
 
-export const customerBookingsKeys = {
-  all: ["customer-bookings"] as const,
-  list: () => [...customerBookingsKeys.all, "list"] as const,
-};
-
 export function useCustomerBookings() {
   return useQuery({
     queryKey: customerBookingsKeys.list(),
@@ -39,5 +34,19 @@ export function useCancelBooking() {
       qc.invalidateQueries({ queryKey: customerBookingsKeys.all });
       qc.invalidateQueries({ queryKey: marketplaceKeys.all });
     },
+  });
+}
+
+export const customerBookingsKeys = {
+  all: ["customer-bookings"] as const,
+  list: () => [...customerBookingsKeys.all, "list"] as const,
+  detail: (id: number) => [...customerBookingsKeys.all, "detail", id] as const,
+};
+
+export function useCustomerBookingDetail(id: number | null) {
+  return useQuery({
+    queryKey: customerBookingsKeys.detail(id ?? 0),
+    queryFn: () => customerBookingsApi.detail(id!),
+    enabled: id !== null,
   });
 }

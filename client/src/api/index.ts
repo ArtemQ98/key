@@ -11,3 +11,4 @@ export * from "./dashboard";
 export * from "./profile";
 export * from "./fleet";
 export * from "./customerBookings";
+export * from "./messages";

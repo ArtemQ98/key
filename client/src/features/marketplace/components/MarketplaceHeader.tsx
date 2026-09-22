@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, LogIn, Menu, UserRound } from "lucide-react";
+import { Building2, Link, LogIn, Menu, UserRound } from "lucide-react";
 import { Button } from "@/components/ui";
 import { Drawer } from "@/components/ui";
 import { Logo } from "@/components/layout";
@@ -34,6 +34,9 @@ export function MarketplaceHeader({
 
           {/* Навигация — десктоп */}
           <nav className="hidden items-center gap-6 text-sm font-medium text-muted-foreground md:flex">
+            <Link to="/pricing" className="transition-colors hover:text-foreground">
+              Тарифы
+            </Link>
             <a href="#cars" className="transition-colors hover:text-foreground">
               Автомобили
             </a>

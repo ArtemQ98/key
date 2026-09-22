@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { CenteredSpinner } from "@/components/ui";
+import { ContactsPage } from "./pages/ContactsPage";
 
 const OwnerLayout = lazy(() =>
   import("@/components/layout/OwnerLayout").then((m) => ({
@@ -53,6 +54,13 @@ const AccountPage = lazy(() =>
   })),
 );
 
+const PrivacyPage = lazy(() =>
+  import("@/pages/legal/PrivacyPage").then((m) => ({ default: m.PrivacyPage })),
+);
+const TermsPage = lazy(() =>
+  import("@/pages/legal/TermsPage").then((m) => ({ default: m.TermsPage })),
+);
+
 const NotFoundPage = lazy(() =>
   import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })),
 );
@@ -77,11 +85,22 @@ const FleetPage = lazy(() =>
   import("@/pages/market/FleetPage").then((m) => ({ default: m.FleetPage })),
 );
 
+const PricingPage = lazy(() =>
+  import("@/pages/PricingPage").then((m) => ({ default: m.PricingPage })),
+);
+
+const BookingDetailPage = lazy(() =>
+  import("@/pages/market/BookingDetailPage").then((m) => ({
+    default: m.BookingDetailPage,
+  })),
+);
+
 export const router = createBrowserRouter([
   // Marketplace
   { path: "/", element: wrap(<MarketplacePage />) },
   { path: "/login", element: wrap(<CustomerLoginPage />) },
   { path: "/account", element: wrap(<AccountPage />) },
+  { path: "/account/bookings/:id", element: wrap(<BookingDetailPage />) },
   { path: "/car/:id", element: wrap(<CarDetailPage />) },
   { path: "/fleet/:slug", element: wrap(<FleetPage />) },
 
@@ -89,6 +108,11 @@ export const router = createBrowserRouter([
   { path: "/app/login", element: wrap(<LoginPage />) },
   { path: "/app/register", element: wrap(<RegisterPage />) },
 
+  //Legal
+  { path: "/privacy", element: wrap(<PrivacyPage />) },
+  { path: "/terms", element: wrap(<TermsPage />) },
+  { path: "/pricing", element: wrap(<PricingPage />) },
+  { path: "/contacts", element: wrap(<ContactsPage />) },
   // Owner app — обёрнуто в OwnerLayout
   {
     path: "/app",

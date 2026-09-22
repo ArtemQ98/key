@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { CarFront, Search, SearchCheck } from "lucide-react";
 import { Button, Empty, Field, Input, Skeleton } from "@/components/ui";
 import { useMarketplaceCars, useMarketplaceFleets } from "@/hooks/useMarketplace";
@@ -42,7 +42,6 @@ export function MarketplacePage() {
   const carsQuery = useMarketplaceCars(params);
   const fleetsQuery = useMarketplaceFleets({ city: city || undefined, q: q || undefined });
 
-  // Восстанавливаем сессию клиента
   useState(() => {
     if (!customer) void fetchMe();
   });
@@ -60,7 +59,6 @@ export function MarketplacePage() {
 
       {/* HERO */}
       <section className="relative overflow-hidden border-b border-border">
-        {/* Градиентные пятна */}
         <div
           aria-hidden
           className="pointer-events-none absolute -top-40 left-1/4 h-[500px] w-[500px] animate-pulse rounded-full bg-gradient-to-br from-indigo-500/20 to-blue-500/20 blur-3xl"
@@ -120,7 +118,6 @@ export function MarketplacePage() {
             </p>
           </div>
 
-          {/* Поиск */}
           <div className="mx-auto mt-10 max-w-4xl rounded-2xl border border-border bg-card p-5 shadow-elevated">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <Field label="Город">
@@ -253,24 +250,57 @@ export function MarketplacePage() {
 
       {/* Футер */}
       <footer className="border-t border-border py-10">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 sm:flex-row sm:px-6">
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <CarFront className="h-4 w-4" />
-            KEY · marketplace
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <CarFront className="h-4 w-4" />
+              KEY · marketplace
+            </div>
+
+            <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+              <Link
+                to="/pricing"
+                className="transition-colors hover:text-foreground"
+              >
+                Тарифы
+              </Link>
+              <Link
+                to="/privacy"
+                className="transition-colors hover:text-foreground"
+              >
+                Конфиденциальность
+              </Link>
+              <Link
+                to="/terms"
+                className="transition-colors hover:text-foreground"
+              >
+                Соглашение
+              </Link>
+              <Link
+                to="/contacts"
+                className="transition-colors hover:text-foreground"
+              >
+                Контакты
+              </Link>
+              <button
+                onClick={() => {
+                  window.history.pushState({}, "", "/app");
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                }}
+                className="transition-colors hover:text-foreground"
+              >
+                Владельцам →
+              </button>
+            </nav>
           </div>
-          <button
-            onClick={() => {
-              window.history.pushState({}, "", "/app");
-              window.dispatchEvent(new PopStateEvent("popstate"));
-            }}
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Владельцам автопарков →
-          </button>
+
+          {/* Реквизиты — важно для ЮKassa */}
+          <div className="mt-8 border-t border-border pt-6 text-center text-xs text-muted-foreground">
+            Курочкин Артём Михайлович · ИНН 713500544320 · самозанятый
+          </div>
         </div>
       </footer>
 
-      {/* Модалка авторизации */}
       <CustomerAuthModal
         open={authOpen}
         onOpenChange={setAuthOpen}
@@ -279,7 +309,6 @@ export function MarketplacePage() {
         }}
       />
 
-      {/* Модалка бронирования */}
       <BookingModal
         car={selectedCar}
         onOpenChange={(o) => !o && setSelectedCar(null)}

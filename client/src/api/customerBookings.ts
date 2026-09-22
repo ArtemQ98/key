@@ -1,5 +1,6 @@
 import { customerApi } from "@/api/client";
 import type { CustomerBooking, RentalStatus } from "@/api/types";
+import { useQuery } from "@tanstack/react-query";
 
 export interface CreateCustomerBookingInput {
   car_id: number;
@@ -30,4 +31,21 @@ export const customerBookingsApi = {
       status: "cancelled",
       reason,
     }),
+
+  detail: (id: number) =>
+    customerApi.get<CustomerBooking>(`/customer/bookings/${id}`),
 };
+
+export const customerBookingsKeys = {
+  all: ["customer-bookings"] as const,
+  list: () => [...customerBookingsKeys.all, "list"] as const,
+  detail: (id: number) => [...customerBookingsKeys.all, "detail", id] as const,
+};
+
+export function useCustomerBookingDetail(id: number | null) {
+  return useQuery({
+    queryKey: customerBookingsKeys.detail(id ?? 0),
+    queryFn: () => customerBookingsApi.detail(id!),
+    enabled: id !== null,
+  });
+}

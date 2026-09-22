@@ -10,10 +10,11 @@ import {
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/cn";
-import { Avatar } from "@/components/ui";
+import { Avatar, UnreadBadge } from "@/components/ui";
 import { Logo } from "./Logo";
 import type { User } from "@/api/types";
 import { useFleetProfile } from "@/hooks/useFleetProfile";
+import { useUnreadCount } from "@/hooks/useMessages";
 
 const nav = [
   { to: "/app", label: "Обзор", icon: LayoutDashboard, end: true },
@@ -33,6 +34,7 @@ interface SidebarProps {
 
 export function Sidebar({ user, onLogout, className }: SidebarProps) {
   const { data: fleet } = useFleetProfile();
+  const { data: unread } = useUnreadCount("owner");
   const avatarUrl = fleet?.avatar_url || "";
   return (
     <aside
@@ -94,6 +96,9 @@ export function Sidebar({ user, onLogout, className }: SidebarProps) {
                     )}
                   />
                   <span className="flex-1 truncate">{item.label}</span>
+                  {item.to === "/app/rentals" && (
+                    <UnreadBadge count={unread?.total ?? 0} />
+                  )}
                 </>
               )}
             </NavLink>

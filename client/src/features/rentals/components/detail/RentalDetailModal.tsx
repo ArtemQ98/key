@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import {
   Button,
   Modal,
@@ -17,6 +17,7 @@ import { RentalDataColumns } from "./RentalDataColumns";
 import { RentalEventsTimeline } from "./RentalEventsTimeline";
 import { AlertTriangle, Wallet } from "lucide-react";
 import { useTogglePayment } from "@/hooks/useRentals";
+import { ChatPanel } from "./ChatPanel";
 
 const NEXT_STATUS: Partial<Record<RentalStatus, RentalStatus[]>> = {
   hold: ["confirmed", "rejected"],
@@ -53,7 +54,7 @@ export function RentalDetailModal({
 }: RentalDetailModalProps) {
   const detailQuery = useRentalDetail(rentalId);
   const updateStatus = useUpdateRentalStatus();
-  const [tab, setTab] = useState<"ops" | "data" | "events">("ops");
+  const [tab, setTab] = useState<"ops" | "data" | "events" | "chat">("ops");
   const togglePayment = useTogglePayment();
 
   function transition(status: RentalStatus) {
@@ -98,7 +99,17 @@ export function RentalDetailModal({
                   {detailQuery.data.client}
                 </p>
               </div>
-              <RentalStatusBadge status={detailQuery.data.status} />
+              <div className="flex items-center gap-2 shrink-0">
+                <RentalStatusBadge status={detailQuery.data.status} />
+                <button
+                  type="button"
+                  onClick={() => onOpenChange(false)}
+                  aria-label="Закрыть"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <RentalProgress status={detailQuery.data.status} />
@@ -196,12 +207,22 @@ export function RentalDetailModal({
               >
                 История
               </TabBtn>
+              <TabBtn active={tab === "chat"} onClick={() => setTab("chat")}>
+                Чат
+              </TabBtn>
             </div>
 
             {tab === "ops" && <RentalOpsPanel rental={detailQuery.data} />}
             {tab === "data" && <RentalDataColumns rental={detailQuery.data} />}
             {tab === "events" && (
               <RentalEventsTimeline events={detailQuery.data.events} />
+            )}
+            {tab === "chat" && (
+              <ChatPanel
+                rentalId={detailQuery.data.id}
+                otherName={detailQuery.data.client}
+                as="owner"
+              />
             )}
           </ModalBody>
         </>

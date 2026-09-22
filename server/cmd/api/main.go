@@ -41,6 +41,8 @@ func main() {
 		{"rentals car_id", ensureRentalsCarIDSchema},
 		{"plans", ensurePlansSchema},
 		{"rental terms", ensureRentalTermsSchema},
+		{"rental messages", ensureRentalMessagesSchema},
+		{"rental messages notified", ensureRentalMessagesNotifiedSchema},
 	}
 	for _, m := range migrations {
 		if err := m.fn(ctx, db); err != nil {
@@ -75,6 +77,13 @@ func main() {
 		rlRegister: newRateLimiter(5, 60*time.Minute),
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if isProd() {
+		go app.startChatNotifyCron(ctx)
+	}
+
 	// === Router ===
 	mux := http.NewServeMux()
 
@@ -100,7 +109,10 @@ func main() {
 	mux.Handle("/api/me", app.auth(http.HandlerFunc(app.me)))
 	mux.Handle("/api/bookings", app.auth(http.HandlerFunc(app.bookings)))
 	mux.Handle("/api/bookings/", app.auth(http.HandlerFunc(app.bookingByID)))
+	mux.Handle("/api/customer/bookings/", app.auth(http.HandlerFunc(app.customerBookingByID)))
 	mux.Handle("/api/customer/bookings", app.auth(http.HandlerFunc(app.customerBookings)))
+	mux.Handle("/api/rental-messages/unread-count", app.auth(http.HandlerFunc(app.rentalMessagesUnreadCount)))
+	mux.Handle("/api/rental-messages/", app.auth(http.HandlerFunc(app.rentalMessagesRouter)))
 
 	// Owner-only
 	mux.Handle("/api/profile", app.ownerOnly(http.HandlerFunc(app.profile)))

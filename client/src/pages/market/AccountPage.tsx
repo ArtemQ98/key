@@ -1,13 +1,20 @@
 import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, CarFront, Clock3, LogOut } from "lucide-react";
+import { ArrowLeft, Bell, CarFront, Clock3, LogOut } from "lucide-react";
 import { Logo } from "@/components/layout";
-import { Button, Empty, RentalStatusBadge, Spinner } from "@/components/ui";
+import {
+  Button,
+  Empty,
+  RentalStatusBadge,
+  Spinner,
+  UnreadBadge,
+} from "@/components/ui";
 import { useCustomerAuthStore } from "@/stores/customerAuth";
 import {
   useCancelBooking,
   useCustomerBookings,
 } from "@/hooks/useCustomerBookings";
+import { useUnreadCount } from "@/hooks/useMessages";
 import { money } from "@/lib/format";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { toast } from "sonner";
@@ -19,16 +26,13 @@ export function AccountPage() {
   const logout = useCustomerAuthStore((s) => s.logout);
   const bookingsQuery = useCustomerBookings();
   const cancelBooking = useCancelBooking();
+  const { data: unread } = useUnreadCount("customer");
+  const totalUnread = unread?.total ?? 0;
+  const unreadByRental = unread?.by_rental ?? {};
 
   useEffect(() => {
     if (!customer) void fetchMe();
   }, [customer, fetchMe]);
-
-  useEffect(() => {
-    if (!customer && !bookingsQuery.isLoading && !useCustomerAuthStore.getState().loading) {
-      // если не залогинен — на маркетплейс
-    }
-  }, [customer, bookingsQuery.isLoading]);
 
   if (!customer) {
     return (
@@ -64,18 +68,31 @@ export function AccountPage() {
             <ArrowLeft className="h-4 w-4" />
             Каталог
           </Link>
+
           <Logo size="md" />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              logout();
-              navigate("/");
-            }}
-          >
-            <LogOut className="h-4 w-4" />
-            Выйти
-          </Button>
+
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Bell className="h-5 w-5 text-muted-foreground" />
+              {totalUnread > 0 && (
+                <UnreadBadge
+                  count={totalUnread}
+                  className="absolute -right-2 -top-2"
+                />
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                logout();
+                navigate("/");
+              }}
+            >
+              <LogOut className="h-4 w-4" />
+              Выйти
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -106,56 +123,75 @@ export function AccountPage() {
             </div>
           ) : bookings.length ? (
             <div className="divide-y divide-border">
-              {bookings.map((b) => (
-                <div key={b.id} className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-secondary">
-                    <CarFront className="h-5 w-5 text-muted-foreground" />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold">{b.car}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {b.fleet} · {b.city}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {b.booking_code} · {formatDate(b.starts_at)} —{" "}
-                      {formatDate(b.ends_at)}
+              {bookings.map((b) => {
+                const unreadForThis = unreadByRental[String(b.id)] ?? 0;
+                return (
+                  <div
+                    key={b.id}
+                    onClick={() => navigate(`/account/bookings/${b.id}`)}
+                    className="flex cursor-pointer flex-col gap-4 p-5 transition-colors hover:bg-secondary/40 sm:flex-row sm:items-center"
+                  >
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-secondary">
+                      <CarFront className="h-5 w-5 text-muted-foreground" />
                     </div>
 
-                    {b.pickup_meeting_at && (
-                      <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock3 className="h-3 w-3" />
-                        Получение: {formatDateTime(b.pickup_meeting_at)}
-                        {b.pickup_meeting_location && ` · ${b.pickup_meeting_location}`}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">{b.car}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {b.fleet} · {b.city}
                       </div>
-                    )}
-                    {b.return_meeting_at && (
-                      <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock3 className="h-3 w-3" />
-                        Возврат: {formatDateTime(b.return_meeting_at)}
-                        {b.return_meeting_location && ` · ${b.return_meeting_location}`}
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="flex flex-col items-start gap-2 sm:items-end">
-                    <div className="text-base font-semibold">
-                      {money(b.amount)}
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>{b.booking_code}</span>
+                        <span>·</span>
+                        <span>
+                          {formatDate(b.starts_at)} — {formatDate(b.ends_at)}
+                        </span>
+                        {unreadForThis > 0 && (
+                          <UnreadBadge count={unreadForThis} />
+                        )}
+                      </div>
+
+                      {b.pickup_meeting_at && (
+                        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock3 className="h-3 w-3" />
+                          Получение: {formatDateTime(b.pickup_meeting_at)}
+                          {b.pickup_meeting_location &&
+                            ` · ${b.pickup_meeting_location}`}
+                        </div>
+                      )}
+                      {b.return_meeting_at && (
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                          <Clock3 className="h-3 w-3" />
+                          Возврат: {formatDateTime(b.return_meeting_at)}
+                          {b.return_meeting_location &&
+                            ` · ${b.return_meeting_location}`}
+                        </div>
+                      )}
                     </div>
-                    <RentalStatusBadge status={b.status} />
-                    {["hold", "pending", "confirmed"].includes(b.status) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleCancel(b.id)}
-                        loading={cancelBooking.isPending}
-                      >
-                        Отменить
-                      </Button>
-                    )}
+
+                    <div className="flex flex-col items-start gap-2 sm:items-end">
+                      <div className="text-base font-semibold">
+                        {money(b.amount)}
+                      </div>
+                      <RentalStatusBadge status={b.status} />
+                      {["hold", "pending", "confirmed"].includes(b.status) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCancel(b.id);
+                          }}
+                          loading={cancelBooking.isPending}
+                        >
+                          Отменить
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="p-8">

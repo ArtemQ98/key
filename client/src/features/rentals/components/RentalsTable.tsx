@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import type { Rental } from "@/api/types";
-import { Avatar, RentalStatusBadge } from "@/components/ui";
+import { Avatar, RentalStatusBadge, UnreadBadge } from "@/components/ui";
+import { useUnreadCount } from "@/hooks/useMessages";
 import { money } from "@/lib/format";
 import { formatDateShort } from "@/lib/dates";
 import { cn } from "@/lib/cn";
@@ -18,7 +19,14 @@ interface RentalsTableProps {
   onAdvance: (id: number, status: string) => void;
 }
 
-export function RentalsTable({ rentals, onOpen, onAdvance }: RentalsTableProps) {
+export function RentalsTable({
+  rentals,
+  onOpen,
+  onAdvance,
+}: RentalsTableProps) {
+  const { data: unread } = useUnreadCount("owner");
+  const unreadByRental = unread?.by_rental ?? {};
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -35,6 +43,8 @@ export function RentalsTable({ rentals, onOpen, onAdvance }: RentalsTableProps) 
         <tbody>
           {rentals.map((r) => {
             const next = nextStatus[r.status];
+            const unreadForThis = unreadByRental[String(r.id)] ?? 0;
+
             return (
               <tr
                 key={r.id}
@@ -45,7 +55,12 @@ export function RentalsTable({ rentals, onOpen, onAdvance }: RentalsTableProps) 
                   <div className="flex items-center gap-3">
                     <Avatar name={r.client || "К"} size="sm" />
                     <div className="min-w-0">
-                      <div className="truncate font-medium">{r.client}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium">{r.client}</span>
+                        {unreadForThis > 0 && (
+                          <UnreadBadge count={unreadForThis} />
+                        )}
+                      </div>
                       <div className="truncate text-xs text-muted-foreground">
                         {r.phone || "Телефон не указан"}
                       </div>
@@ -77,10 +92,7 @@ export function RentalsTable({ rentals, onOpen, onAdvance }: RentalsTableProps) 
                     {r.payment_status === "paid" ? "Оплачено" : "Не оплачено"}
                   </div>
                 </td>
-                <td
-                  className="px-4 py-3"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   {next ? (
                     <button
                       onClick={() => onAdvance(r.id, next.to)}

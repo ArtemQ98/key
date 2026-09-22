@@ -1,18 +1,19 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowRight, Mail } from "lucide-react";
-import { Button, Field, Input } from "@/components/ui";
+import { Button, Checkbox, Field, Input } from "@/components/ui";
 import { api, tokens } from "@/api/client";
 import { useAuthStore } from "@/stores/auth";
 import { isApiError } from "@/lib/apiError";
 
 const schema = z.object({
   name: z.string().min(1, "Укажите имя"),
+  company_name: z.string().optional(),
   phone: z.string().min(10, "Укажите телефон"),
   email: z.string().email("Некорректный email"),
-  company_name: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -28,6 +29,7 @@ export function RegisterForm() {
   const [code, setCode] = useState("");
   const [serverError, setServerError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   const fetchMe = useAuthStore((s) => s.fetchMe);
 
@@ -43,9 +45,14 @@ export function RegisterForm() {
   async function onRequestCode(values: FormValues) {
     if (busy) return;
     setServerError("");
+
+    if (!agreed) {
+      setServerError("Подтвердите согласие на обработку персональных данных");
+      return;
+    }
+
     setBusy(true);
     try {
-      // Отправляем код ТОЛЬКО на email — SMS пока не используем
       await api.post("/auth/request-code", { email: values.email });
       setFormData({
         name: values.name,
@@ -63,13 +70,6 @@ export function RegisterForm() {
 
   async function onVerifyCode(e: React.FormEvent) {
     e.preventDefault();
-
-    // Отладка — что реально уходит
-    console.log("=== VERIFY DEBUG ===");
-    console.log("email:", JSON.stringify(formData.email));
-    console.log("code:", JSON.stringify(code), "len:", code.length);
-    console.log("busy:", busy);
-
     if (busy || code.length !== 6) return;
     setServerError("");
     setBusy(true);
@@ -84,7 +84,6 @@ export function RegisterForm() {
       tokens.owner.set(res.token);
       await fetchMe();
     } catch (e) {
-      console.error("VERIFY ERROR:", e);
       setServerError(isApiError(e) ? e.message : "Неверный код");
     } finally {
       setBusy(false);
@@ -129,13 +128,47 @@ export function RegisterForm() {
               />
             </Field>
 
-            <Field label="Телефон">
-              <Input placeholder="+7 999 123-45-67" {...register("phone")} />
+            <Field label="Телефон" required error={errors.phone?.message}>
+              <Input
+                type="tel"
+                autoComplete="tel"
+                placeholder="+7 999 123-45-67"
+                invalid={!!errors.phone}
+                {...register("phone")}
+              />
             </Field>
 
             <Field label="Название автопарка · необязательно">
               <Input placeholder="KEY Fleet" {...register("company_name")} />
             </Field>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-secondary/40 p-3">
+              <Checkbox
+                className="mt-0.5"
+                checked={agreed}
+                onCheckedChange={(v) => setAgreed(v === true)}
+              />
+              <span className="text-xs leading-relaxed text-muted-foreground">
+                Я принимаю{" "}
+                <Link
+                  to="/terms"
+                  target="_blank"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  пользовательское соглашение
+                </Link>{" "}
+                и даю согласие на{" "}
+                <Link
+                  to="/privacy"
+                  target="_blank"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  обработку персональных данных
+                </Link>
+              </span>
+            </label>
 
             {serverError && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -147,7 +180,7 @@ export function RegisterForm() {
               type="submit"
               className="w-full"
               loading={busy}
-              disabled={busy}
+              disabled={busy || !agreed}
             >
               Получить код
               <ArrowRight className="h-4 w-4" />
@@ -173,7 +206,7 @@ export function RegisterForm() {
               </button>
             </div>
 
-            <Field label="Код из почты">
+            <Field label="Код из почты" required>
               <Input
                 autoFocus
                 type="text"

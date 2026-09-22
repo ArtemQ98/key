@@ -200,3 +200,44 @@ func ensureRentalTermsSchema(ctx context.Context, db *pgxpool.Pool) error {
 	log.Println("KEY rental terms schema applied")
 	return nil
 }
+
+func ensureRentalMessagesSchema(ctx context.Context, db *pgxpool.Pool) error {
+	var exists bool
+	if err := db.QueryRow(ctx,
+		`SELECT to_regclass('public.rental_messages') IS NOT NULL`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "020_rental_messages.sql"))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, string(b)); err != nil {
+		return err
+	}
+	log.Println("KEY rental messages schema applied")
+	return nil
+}
+
+func ensureRentalMessagesNotifiedSchema(ctx context.Context, db *pgxpool.Pool) error {
+	var exists bool
+	if err := db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		 WHERE table_name='rental_messages' AND column_name='notified_at')`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "021_rental_messages_notified.sql"))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, string(b)); err != nil {
+		return err
+	}
+	log.Println("KEY rental messages notified schema applied")
+	return nil
+}

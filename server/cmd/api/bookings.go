@@ -198,3 +198,105 @@ func (a *App) bookingByID(w http.ResponseWriter, r *http.Request) {
 
 	write(w, 200, map[string]bool{"ok": true})
 }
+
+// ============== GET CUSTOMER BOOKING BY ID ==============
+
+func (a *App) customerBookingByID(w http.ResponseWriter, r *http.Request) {
+	if r.Context().Value(ctxKey("role")) != "customer" {
+		write(w, 403, map[string]string{"error": "customer access required"})
+		return
+	}
+	if r.Method != "GET" {
+		write(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/customer/bookings/"), 10, 64)
+	if err != nil {
+		write(w, 400, map[string]string{"error": "bad id"})
+		return
+	}
+
+	var (
+		car, status, fleet, city, payment, code string
+		amount, deposit                         float64
+		st, en, pickupMeeting, returnMeeting    *time.Time
+		pickupLocation, returnLocation          string
+		ownerID                                 int64
+	)
+	err = a.db.QueryRow(r.Context(), `
+		SELECT r.id, COALESCE(r.booking_code,''), r.car_name, r.status,
+		       r.amount, r.deposit, r.starts_at, r.ends_at,
+		       COALESCE(fp.title,''), COALESCE(fp.city,''),
+		       r.payment_status,
+		       r.pickup_meeting_at, r.pickup_meeting_location,
+		       r.return_meeting_at, r.return_meeting_location,
+		       r.owner_id
+		FROM rentals r
+		LEFT JOIN fleet_profiles fp ON fp.owner_id = r.owner_id
+		WHERE r.id=$1 AND r.client_user_id=$2
+	`, id, userID(r.Context())).Scan(
+		&id, &code, &car, &status,
+		&amount, &deposit, &st, &en,
+		&fleet, &city,
+		&payment,
+		&pickupMeeting, &pickupLocation,
+		&returnMeeting, &returnLocation,
+		&ownerID,
+	)
+	if err != nil {
+		write(w, 404, map[string]string{"error": "бронирование не найдено"})
+		return
+	}
+
+	// События из rental_events
+	rows, err := a.db.Query(r.Context(), `
+		SELECT id, event_type, COALESCE(from_status,''), COALESCE(to_status,''),
+		       actor_role, payload, created_at
+		FROM rental_events
+		WHERE rental_id=$1
+		ORDER BY created_at ASC, id ASC
+	`, id)
+	if err != nil {
+		write(w, 500, map[string]string{"error": "events query failed"})
+		return
+	}
+	defer rows.Close()
+
+	events := []map[string]any{}
+	for rows.Next() {
+		var eid int64
+		var etype, from, to, actor string
+		var payload []byte
+		var createdAt time.Time
+		if rows.Scan(&eid, &etype, &from, &to, &actor, &payload, &createdAt) == nil {
+			events = append(events, map[string]any{
+				"id":          eid,
+				"event_type":  etype,
+				"from_status": from,
+				"to_status":   to,
+				"actor_role":  actor,
+				"payload":     nullableJSON(payload),
+				"created_at":  createdAt,
+			})
+		}
+	}
+
+	write(w, 200, map[string]any{
+		"id":                      id,
+		"booking_code":            code,
+		"car":                     car,
+		"status":                  status,
+		"amount":                  amount,
+		"deposit":                 deposit,
+		"starts_at":               st,
+		"ends_at":                 en,
+		"fleet":                   fleet,
+		"city":                    city,
+		"payment_status":          payment,
+		"pickup_meeting_at":       pickupMeeting,
+		"pickup_meeting_location": pickupLocation,
+		"return_meeting_at":       returnMeeting,
+		"return_meeting_location": returnLocation,
+		"events":                  events,
+	})
+}
