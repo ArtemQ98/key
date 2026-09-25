@@ -43,6 +43,12 @@ const CustomerLoginPage = lazy(() =>
   })),
 );
 
+const CustomerWelcomePage = lazy(() =>
+  import("@/pages/market/CustomerWelcomePage").then((m) => ({
+    default: m.CustomerWelcomePage,
+  })),
+);
+
 const MarketplacePage = lazy(() =>
   import("@/pages/market/MarketplacePage").then((m) => ({
     default: m.MarketplacePage,
@@ -95,6 +101,10 @@ const BookingDetailPage = lazy(() =>
   })),
 );
 
+const WelcomePage = lazy(() =>
+  import("@/pages/owner/WelcomePage").then((m) => ({ default: m.WelcomePage })),
+);
+
 export const router = createBrowserRouter([
   // Marketplace
   { path: "/", element: wrap(<MarketplacePage />) },
@@ -103,10 +113,12 @@ export const router = createBrowserRouter([
   { path: "/account/bookings/:id", element: wrap(<BookingDetailPage />) },
   { path: "/car/:id", element: wrap(<CarDetailPage />) },
   { path: "/fleet/:slug", element: wrap(<FleetPage />) },
+  { path: "/account/welcome", element: wrap(<CustomerWelcomePage />) },
 
   // Owner auth
   { path: "/app/login", element: wrap(<LoginPage />) },
   { path: "/app/register", element: wrap(<RegisterPage />) },
+  { path: "/app/welcome", element: wrap(<WelcomePage />) },
 
   //Legal
   { path: "/privacy", element: wrap(<PrivacyPage />) },

@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Check,
@@ -11,12 +11,52 @@ import {
   Phone,
 } from "lucide-react";
 import { Logo } from "@/components/layout";
-import { Badge, Button, Card, CardContent } from "@/components/ui";
+import { Badge, Button, Card, CardContent, toast } from "@/components/ui";
 import { PLANS } from "@/features/plans/plans";
 import { money } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { api } from "@/api";
+import { useAuthStore } from "@/stores/auth";
+import { useState } from "react";
 
 export function PricingPage() {
+  const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const [busyPlan, setBusyPlan] = useState<string | null>(null);
+
+  const handleSelect = async (planId: string) => {
+    if (busyPlan) return;
+    // Free — ничего не делаем, это дефолт
+    if (planId === "free") {
+      if (!user) navigate("/app/register");
+      return;
+    }
+
+    // Не залогинен — отправляем на регистрацию с выбранным тарифом
+    if (!user) {
+      navigate(`/app/register?plan=${planId}`);
+      return;
+    }
+
+    // Залогинен — создаём платёж в ЮKassa
+    setBusyPlan(planId);
+    try {
+      const { confirmation_url } = await api.post<{ confirmation_url: string }>(
+        "/billing/subscribe",
+        { plan_id: planId },
+      );
+      if (confirmation_url) {
+        window.location.href = confirmation_url;
+      } else {
+        toast.error("Не удалось получить ссылку на оплату");
+        setBusyPlan(null);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось создать платёж");
+      setBusyPlan(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -54,6 +94,7 @@ export function PricingPage() {
             const priceLabel =
               plan.price === 0 ? "Бесплатно" : money(plan.price);
             const isPro = plan.id === "pro";
+            const isCurrentPlan = user?.plan === plan.id;
 
             return (
               <Card
@@ -107,23 +148,19 @@ export function PricingPage() {
                   </ul>
 
                   <div className="mt-auto pt-6">
-                    <Link
-                      to={
-                        plan.price === 0
-                          ? "/app/register"
-                          : `/app/register?plan=${plan.id}`
-                      }
-                      className="block"
+                    <Button
+                      variant={isPro ? "primary" : "outline"}
+                      className="w-full"
+                      disabled={isCurrentPlan || busyPlan !== null}
+                      loading={busyPlan === plan.id}
+                      onClick={() => handleSelect(plan.id)}
                     >
-                      <Button
-                        variant={isPro ? "primary" : "outline"}
-                        className="w-full"
-                      >
-                        {plan.price === 0
+                      {isCurrentPlan
+                        ? "Текущий тариф"
+                        : plan.price === 0
                           ? "Начать бесплатно"
                           : `Выбрать ${plan.name}`}
-                      </Button>
-                    </Link>
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -223,7 +260,7 @@ export function PricingPage() {
           </div>
         </div>
 
-                {/* Footer */}
+        {/* Footer */}
         <div className="mt-16 border-t border-border pt-8 text-center text-xs text-muted-foreground">
           <p>Курочкин Артём Михайлович · ИНН 713500544320 · самозанятый</p>
           <p className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">

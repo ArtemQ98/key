@@ -32,7 +32,7 @@ export function Shell({
       <MobileNav user={user} alerts={alerts} onLogout={onLogout} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar user={user} title={title} alerts={alerts} />
+        <Topbar user={user} title={title} />
         <main
           className={cn(
             "flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8",

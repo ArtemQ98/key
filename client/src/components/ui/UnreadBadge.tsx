@@ -7,14 +7,19 @@ interface UnreadBadgeProps {
 
 export function UnreadBadge({ count, className }: UnreadBadgeProps) {
   if (!count || count <= 0) return null;
+
+  const isSingle = count < 10;
+  const label = count > 99 ? "99+" : String(count);
+
   return (
     <span
       className={cn(
-        "inline-flex min-w-[18px] items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-none text-destructive-foreground",
+        "inline-flex items-center justify-center rounded-full bg-destructive font-semibold leading-none text-destructive-foreground",
+        isSingle ? "h-4 w-4 text-[10px]" : "h-4 min-w-4 px-1 text-[10px]",
         className,
       )}
     >
-      {count > 99 ? "99+" : count}
+      {label}
     </span>
   );
 }

@@ -37,7 +37,6 @@ export function Calendar({
   const m = cursor.getMonth();
   const firstDay = new Date(y, m, 1);
   const daysInMonth = new Date(y, m + 1, 0).getDate();
-  // Понедельник = 0, воскресенье = 6
   const offset = (firstDay.getDay() + 6) % 7;
 
   const cells: Array<{ day: number; value: string } | null> = [];
@@ -49,20 +48,39 @@ export function Calendar({
   const isBlocked = (v: string) => blocked.includes(v);
   const isBeforeMin = (v: string) => (min ? v < min : false);
   const isSelected = (v: string) => v === from || v === to;
-  const isInRange = (v: string) =>
-    !!(from && to && v > from && v < to);
+  const isInRange = (v: string) => !!(from && to && v > from && v < to);
+
+  // Проверяем, есть ли заблокированная дата внутри диапазона [start, end].
+  // Если есть — диапазон нельзя выбрать целиком.
+  const rangeHasBlocked = (start: string, end: string) => {
+    const [lo, hi] = start <= end ? [start, end] : [end, start];
+    return blocked.some((b) => b >= lo && b <= hi);
+  };
 
   const handleClick = (v: string) => {
     if (isBlocked(v) || isBeforeMin(v)) return;
     if (!onSelect) return;
+
+    // Первый клик или клик после завершённого диапазона — начинаем заново.
     if (!from || (from && to)) {
       onSelect({ from: v, to: "" });
       return;
     }
+
+    // Клик на дату раньше или ту же — сбрасываем и стартуем с неё.
     if (v <= from) {
       onSelect({ from: v, to: "" });
       return;
     }
+
+    // Между from и v есть занятые — сбрасываем from на v,
+    // пользователь начинает выбор заново, но уже с этой даты.
+    if (rangeHasBlocked(from, v)) {
+      onSelect({ from: v, to: "" });
+      return;
+    }
+
+    // Всё чисто — устанавливаем диапазон.
     onSelect({ from, to: v });
   };
 

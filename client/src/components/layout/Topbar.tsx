@@ -1,21 +1,23 @@
-import { Bell, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Avatar, Button } from "@/components/ui";
+import { NotificationsBell } from "./NotificationsBell";
 import { useUIStore } from "@/stores/ui";
 import { cn } from "@/lib/cn";
 import type { User } from "@/api/types";
 import { useFleetProfile } from "@/hooks/useFleetProfile";
+import { NotificationToggle } from "../NotificationToggle";
 
 interface TopbarProps {
   user: User;
   title?: string;
-  alerts?: number;
   className?: string;
 }
 
-export function Topbar({ user, title, alerts = 0, className }: TopbarProps) {
+export function Topbar({ user, title, className }: TopbarProps) {
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
   const { data: fleet } = useFleetProfile();
   const avatarUrl = fleet?.avatar_url || "";
+
   return (
     <header
       className={cn(
@@ -38,29 +40,20 @@ export function Topbar({ user, title, alerts = 0, className }: TopbarProps) {
       </div>
 
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative group"
-          aria-label="Уведомления"
-        >
-          <Bell className="h-4 w-4 transition-transform duration-300 group-hover:animate-bell-shake" />
-          {alerts > 0 && (
-            <span className="absolute right-1.5 top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground animate-pulse">
-              {alerts}
-            </span>
-          )}
-        </Button>
+        <div className="md:hidden">
+          <NotificationToggle />
+        </div>
+        <NotificationsBell />
 
         {avatarUrl ? (
-        <img
-          src={avatarUrl}
-          alt={user.company_name || user.name || "Аватар"}
-          className="ml-1 h-9 w-9 shrink-0 rounded-full object-cover"
-        />
-      ) : (
-        <Avatar name={user.name || "В"} size="md" className="ml-1" />
-      )}
+          <img
+            src={avatarUrl}
+            alt={user.company_name || user.name || "Аватар"}
+            className="ml-1 h-9 w-9 shrink-0 rounded-full object-cover"
+          />
+        ) : (
+          <Avatar name={user.name || "В"} size="md" className="ml-1" />
+        )}
       </div>
     </header>
   );

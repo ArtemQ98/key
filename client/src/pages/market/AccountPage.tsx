@@ -1,13 +1,13 @@
 import { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Bell, CarFront, Clock3, LogOut } from "lucide-react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft, CarFront, Clock3, LogOut } from "lucide-react";
 import { Logo } from "@/components/layout";
 import {
   Button,
   Empty,
   RentalStatusBadge,
   Spinner,
-  UnreadBadge,
+  UnreadBadge,  
 } from "@/components/ui";
 import { useCustomerAuthStore } from "@/stores/customerAuth";
 import {
@@ -18,21 +18,27 @@ import { useUnreadCount } from "@/hooks/useMessages";
 import { money } from "@/lib/format";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { toast } from "sonner";
+import { HoldTimer } from "@/features/rentals/components/detail/HoldTimer";
 
 export function AccountPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const customer = useCustomerAuthStore((s) => s.customer);
   const fetchMe = useCustomerAuthStore((s) => s.fetchMe);
   const logout = useCustomerAuthStore((s) => s.logout);
   const bookingsQuery = useCustomerBookings();
   const cancelBooking = useCancelBooking();
   const { data: unread } = useUnreadCount("customer");
-  const totalUnread = unread?.total ?? 0;
   const unreadByRental = unread?.by_rental ?? {};
+  
 
   useEffect(() => {
     if (!customer) void fetchMe();
   }, [customer, fetchMe]);
+
+  if (customer && !customer.onboarded_at && location.pathname !== "/account/welcome") {
+    return <Navigate to="/account/welcome" replace />;
+  }
 
   if (!customer) {
     return (
@@ -72,15 +78,6 @@ export function AccountPage() {
           <Logo size="md" />
 
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Bell className="h-5 w-5 text-muted-foreground" />
-              {totalUnread > 0 && (
-                <UnreadBadge
-                  count={totalUnread}
-                  className="absolute -right-2 -top-2"
-                />
-              )}
-            </div>
             <Button
               variant="ghost"
               size="sm"
@@ -175,6 +172,9 @@ export function AccountPage() {
                         {money(b.amount)}
                       </div>
                       <RentalStatusBadge status={b.status} />
+                      {b.status === "pending" && b.hold_expires_at && (
+                        <HoldTimer expiresAt={b.hold_expires_at} className="text-[10px]" />
+                      )}
                       {["hold", "pending", "confirmed"].includes(b.status) && (
                         <Button
                           variant="ghost"

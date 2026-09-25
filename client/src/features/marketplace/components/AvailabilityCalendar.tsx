@@ -56,6 +56,13 @@ export function AvailabilityCalendar({
     });
   }
 
+  // Проверяет, есть ли заблокированная дата внутри [start, end].
+  // Если есть — диапазон нельзя выбрать целиком.
+  function rangeHasBlocked(start: string, end: string): boolean {
+    const [lo, hi] = start <= end ? [start, end] : [end, start];
+    return blocked.some((b) => b >= lo && b <= hi);
+  }
+
   function handleClick(v: string) {
     if (blocked.includes(v) || v < today) return;
 
@@ -65,8 +72,15 @@ export function AvailabilityCalendar({
       return;
     }
 
-    // from уже выбран, to ещё нет
+    // Клик на дату ≤ from → начинаем заново с неё
     if (v <= from) {
+      onChange({ from: v, to: "" });
+      return;
+    }
+
+    // Между from и v есть занятые — сбрасываем from на v,
+    // пользователь начинает выбор заново с этой даты
+    if (rangeHasBlocked(from, v)) {
       onChange({ from: v, to: "" });
       return;
     }
@@ -81,9 +95,7 @@ export function AvailabilityCalendar({
           type="button"
           variant="ghost"
           size="icon"
-          onClick={() =>
-            setCursor(new Date(year, month - 1, 1))
-          }
+          onClick={() => setCursor(new Date(year, month - 1, 1))}
         >
           <ChevronLeft className="h-4 w-4" />
         </Button>
@@ -97,9 +109,7 @@ export function AvailabilityCalendar({
           type="button"
           variant="ghost"
           size="icon"
-          onClick={() =>
-            setCursor(new Date(year, month + 1, 1))
-          }
+          onClick={() => setCursor(new Date(year, month + 1, 1))}
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
@@ -125,7 +135,8 @@ export function AvailabilityCalendar({
             const isBlocked = blocked.includes(cell.value);
             const isPast = cell.value < today;
             const selected = cell.value === from || cell.value === to;
-            const inRange = !!from && !!to && cell.value > from && cell.value < to;
+            const inRange =
+              !!from && !!to && cell.value > from && cell.value < to;
 
             return (
               <button
@@ -145,9 +156,7 @@ export function AvailabilityCalendar({
                     "hover:bg-secondary/60",
                   selected &&
                     "bg-primary text-primary-foreground hover:bg-primary/90",
-                  inRange &&
-                    !selected &&
-                    "bg-primary/10 text-foreground",
+                  inRange && !selected && "bg-primary/10 text-foreground",
                 )}
               >
                 {cell.day}

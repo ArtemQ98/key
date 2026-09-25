@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthLayout } from "@/components/layout";
 import { RegisterForm } from "@/features/auth";
 import { useAuthStore } from "@/stores/auth";
@@ -7,10 +7,15 @@ import { useAuthStore } from "@/stores/auth";
 export function RegisterPage() {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const plan = searchParams.get("plan");
 
   useEffect(() => {
-    if (user) navigate("/app", { replace: true });
-  }, [user, navigate]);
+    if (user) {
+      // Если пришли с ?plan=pro — вернуть на тарифы, чтобы завершить оплату
+      navigate(plan ? "/pricing" : "/app", { replace: true });
+    }
+  }, [user, navigate, plan]);
 
   return (
     <AuthLayout>

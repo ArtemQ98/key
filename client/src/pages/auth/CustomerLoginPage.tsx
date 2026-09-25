@@ -10,7 +10,12 @@ export function CustomerLoginPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (customer) navigate("/account", { replace: true });
+    if (!customer) return;
+    // Если онбординг не пройден — ведём на welcome,
+    // иначе — в личный кабинет
+    navigate(customer.onboarded_at ? "/account" : "/account/welcome", {
+      replace: true,
+    });
   }, [customer, navigate]);
 
   return (
@@ -23,7 +28,7 @@ export function CustomerLoginPage() {
           <ArrowLeft className="h-4 w-4" />
           На главную
         </Link>
-        <CustomerAuthForm onSuccess={() => navigate("/account")} />
+        <CustomerAuthForm onSuccess={() => {}} />
       </div>
     </AuthLayout>
   );

@@ -211,6 +211,19 @@ func (a *App) requestCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Для регистрации email должен быть свободен
+	if email != "" {
+		var exists bool
+		_ = a.db.QueryRow(r.Context(),
+			`SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)`, email).Scan(&exists)
+		if exists {
+			write(w, 409, map[string]string{
+				"error": "Этот email уже зарегистрирован. Войдите.",
+			})
+			return
+		}
+	}
+
 	if !a.rlSendCode.allow("send-ip:" + clientIP(r)) {
 		write(w, 429, map[string]string{"error": "слишком много запросов, попробуйте позже"})
 		return
@@ -366,9 +379,10 @@ func (a *App) verifyCodeInternal(w http.ResponseWriter, r *http.Request, default
 	}
 
 	if err != nil {
-		// Новый пользователь — регистрация
 		if len(phone) < 12 {
-			write(w, 422, map[string]string{"error": "укажите телефон"})
+			write(w, 404, map[string]string{
+				"error": "Пользователь не найден. Заполните форму регистрации полностью.",
+			})
 			return
 		}
 
@@ -447,9 +461,9 @@ func (a *App) verifyCodeOwner(w http.ResponseWriter, r *http.Request) {
 func (a *App) me(w http.ResponseWriter, r *http.Request) {
 	var u User
 	err := a.db.QueryRow(r.Context(),
-		`SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,plan,cars_limit,plan_expires_at
+		`SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,plan,cars_limit,plan_expires_at,onboarded_at
      	FROM users WHERE id=$1`, userID(r.Context())).
-		Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role, &u.City, &u.CompanyName, &u.Plan, &u.CarsLimit, &u.PlanExpiresAt)
+		Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role, &u.City, &u.CompanyName, &u.Plan, &u.CarsLimit, &u.PlanExpiresAt, &u.OnboardedAt)
 	if err != nil {
 		write(w, 404, map[string]string{"error": "user not found"})
 		return
@@ -517,7 +531,342 @@ func (a *App) leads(w http.ResponseWriter, r *http.Request) {
 	write(w, 201, map[string]bool{"ok": true})
 }
 
+// POST /api/profile/onboarded — отметить, что владелец прошёл онбординг
+func (a *App) markOnboarded(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		write(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	uid := userID(r.Context())
+	_, err := a.db.Exec(r.Context(),
+		`UPDATE users SET onboarded_at = now() WHERE id = $1`, uid)
+	if err != nil {
+		write(w, 500, map[string]string{"error": "update failed"})
+		return
+	}
+	write(w, 200, map[string]bool{"ok": true})
+}
+
+// POST /auth/owner/login-request-code
+// Отправляет код только существующим владельцам.
+func (a *App) ownerLoginRequestCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		write(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var in struct {
+		Email string `json:"email"`
+	}
+	if decode(r, &in) != nil {
+		write(w, 400, map[string]string{"error": "invalid json"})
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if email == "" || !validEmail(email) {
+		write(w, 422, map[string]string{"error": "некорректный email"})
+		return
+	}
+
+	// Rate limit
+	if !a.rlSendCode.allow("send-ip:" + clientIP(r)) {
+		write(w, 429, map[string]string{"error": "слишком много запросов"})
+		return
+	}
+	if !a.rlSendCode.allow("send:" + email) {
+		write(w, 429, map[string]string{"error": "слишком много запросов"})
+		return
+	}
+
+	// Проверяем, что владелец с таким email существует
+	var exists bool
+	_ = a.db.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM users WHERE email=$1 AND role='owner')`,
+		email).Scan(&exists)
+	if !exists {
+		write(w, 404, map[string]string{
+			"error": "Пользователь с таким email не найден. Зарегистрируйтесь.",
+		})
+		return
+	}
+
+	// Генерируем код
+	code, err := randomCode()
+	if err != nil {
+		write(w, 500, map[string]string{"error": "не удалось создать код"})
+		return
+	}
+	_, _ = a.db.Exec(r.Context(),
+		`UPDATE auth_codes SET used_at=now() WHERE email=$1 AND used_at IS NULL`, email)
+	_, err = a.db.Exec(r.Context(),
+		`INSERT INTO auth_codes(email,code_hash,expires_at)
+		 VALUES($1,$2,now()+interval '5 minutes')`,
+		email, hashCode(code))
+	if err != nil {
+		log.Printf("ownerLoginRequestCode insert failed: %v", err)
+		write(w, 500, map[string]string{"error": "не удалось создать код"})
+		return
+	}
+
+	if isProd() {
+		if err := sendEmailCode(email, code); err != nil {
+			log.Printf("email send failed: %v", err)
+			write(w, 500, map[string]string{"error": "не удалось отправить код"})
+			return
+		}
+	}
+
+	resp := map[string]any{"message": "code sent", "channel": "email"}
+	if !isProd() {
+		resp["dev_code"] = code
+	}
+	write(w, 200, resp)
+}
+
+// POST /auth/owner/login-verify-code
+// Проверяет код и выдаёт токен существующему владельцу.
+func (a *App) ownerLoginVerifyCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		write(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var in struct {
+		Email string `json:"email"`
+		Code  string `json:"code"`
+	}
+	if decode(r, &in) != nil {
+		write(w, 400, map[string]string{"error": "invalid json"})
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	code := strings.TrimSpace(in.Code)
+	if email == "" || len(code) != 6 {
+		write(w, 422, map[string]string{"error": "укажите email и код из 6 цифр"})
+		return
+	}
+
+	if !a.rlVerify.allow("verify-ip:" + clientIP(r)) {
+		write(w, 429, map[string]string{"error": "слишком много попыток"})
+		return
+	}
+	if !a.rlVerify.allow("verify-email:" + email) {
+		write(w, 429, map[string]string{"error": "слишком много попыток"})
+		return
+	}
+
+	ctx := r.Context()
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		write(w, 500, map[string]string{"error": "transaction error"})
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// Проверяем код
+	tag, err := tx.Exec(ctx,
+		`UPDATE auth_codes SET used_at=now()
+		 WHERE email=$1 AND code_hash=$2 AND used_at IS NULL AND expires_at>now()`,
+		email, hashCode(code))
+	if err != nil {
+		write(w, 500, map[string]string{"error": "db error"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		write(w, 401, map[string]string{"error": "неверный или истёкший код"})
+		return
+	}
+
+	// Ищем владельца
+	var id int64
+	var role string
+	err = tx.QueryRow(ctx,
+		`SELECT id, role FROM users WHERE email=$1`, email).Scan(&id, &role)
+	if err != nil {
+		write(w, 404, map[string]string{
+			"error": "Пользователь с таким email не найден. Зарегистрируйтесь.",
+		})
+		return
+	}
+	if role != "owner" {
+		write(w, 403, map[string]string{
+			"error": "это клиентский аккаунт. Войдите через маркетплейс",
+		})
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		write(w, 500, map[string]string{"error": "не удалось подтвердить код"})
+		return
+	}
+
+	t, _ := a.token(id, role)
+
+	// Тянем полный профиль, чтобы фронт не делал лишний запрос
+	var u User
+	_ = a.db.QueryRow(ctx,
+		`SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,plan,cars_limit,plan_expires_at,onboarded_at
+		 FROM users WHERE id=$1`, id).
+		Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role,
+			&u.City, &u.CompanyName, &u.Plan, &u.CarsLimit, &u.PlanExpiresAt, &u.OnboardedAt)
+
+	write(w, 200, map[string]any{"token": t, "user": u})
+}
+
+// POST /auth/customer/login-request-code
+func (a *App) customerLoginRequestCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		write(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var in struct {
+		Email string `json:"email"`
+	}
+	if decode(r, &in) != nil {
+		write(w, 400, map[string]string{"error": "invalid json"})
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if email == "" || !validEmail(email) {
+		write(w, 422, map[string]string{"error": "некорректный email"})
+		return
+	}
+
+	if !a.rlSendCode.allow("send-ip:" + clientIP(r)) {
+		write(w, 429, map[string]string{"error": "слишком много запросов"})
+		return
+	}
+	if !a.rlSendCode.allow("send:" + email) {
+		write(w, 429, map[string]string{"error": "слишком много запросов"})
+		return
+	}
+
+	var exists bool
+	_ = a.db.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM users WHERE email=$1 AND role='customer')`,
+		email).Scan(&exists)
+	if !exists {
+		write(w, 404, map[string]string{
+			"error": "Пользователь с таким email не найден. Зарегистрируйтесь.",
+		})
+		return
+	}
+
+	code, err := randomCode()
+	if err != nil {
+		write(w, 500, map[string]string{"error": "не удалось создать код"})
+		return
+	}
+	_, _ = a.db.Exec(r.Context(),
+		`UPDATE auth_codes SET used_at=now() WHERE email=$1 AND used_at IS NULL`, email)
+	_, err = a.db.Exec(r.Context(),
+		`INSERT INTO auth_codes(email,code_hash,expires_at)
+		 VALUES($1,$2,now()+interval '5 minutes')`,
+		email, hashCode(code))
+	if err != nil {
+		write(w, 500, map[string]string{"error": "не удалось создать код"})
+		return
+	}
+
+	if isProd() {
+		if err := sendEmailCode(email, code); err != nil {
+			write(w, 500, map[string]string{"error": "не удалось отправить код"})
+			return
+		}
+	}
+
+	resp := map[string]any{"message": "code sent", "channel": "email"}
+	if !isProd() {
+		resp["dev_code"] = code
+	}
+	write(w, 200, resp)
+}
+
+// POST /auth/customer/login-verify-code
+func (a *App) customerLoginVerifyCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		write(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var in struct {
+		Email string `json:"email"`
+		Code  string `json:"code"`
+	}
+	if decode(r, &in) != nil {
+		write(w, 400, map[string]string{"error": "invalid json"})
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	code := strings.TrimSpace(in.Code)
+	if email == "" || len(code) != 6 {
+		write(w, 422, map[string]string{"error": "укажите email и код из 6 цифр"})
+		return
+	}
+
+	if !a.rlVerify.allow("verify-ip:" + clientIP(r)) {
+		write(w, 429, map[string]string{"error": "слишком много попыток"})
+		return
+	}
+	if !a.rlVerify.allow("verify-email:" + email) {
+		write(w, 429, map[string]string{"error": "слишком много попыток"})
+		return
+	}
+
+	ctx := r.Context()
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		write(w, 500, map[string]string{"error": "transaction error"})
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE auth_codes SET used_at=now()
+		 WHERE email=$1 AND code_hash=$2 AND used_at IS NULL AND expires_at>now()`,
+		email, hashCode(code))
+	if err != nil {
+		write(w, 500, map[string]string{"error": "db error"})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		write(w, 401, map[string]string{"error": "неверный или истёкший код"})
+		return
+	}
+
+	var id int64
+	var role string
+	err = tx.QueryRow(ctx,
+		`SELECT id, role FROM users WHERE email=$1`, email).Scan(&id, &role)
+	if err != nil {
+		write(w, 404, map[string]string{
+			"error": "Пользователь с таким email не найден. Зарегистрируйтесь.",
+		})
+		return
+	}
+	if role != "customer" {
+		write(w, 403, map[string]string{
+			"error": "это аккаунт владельца. Войдите через /app/login",
+		})
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		write(w, 500, map[string]string{"error": "не удалось подтвердить код"})
+		return
+	}
+
+	t, _ := a.token(id, role)
+
+	var u User
+	_ = a.db.QueryRow(ctx,
+		`SELECT id,name,COALESCE(email,''),COALESCE(phone,''),phone_verified,role,city,company_name,plan,cars_limit,plan_expires_at,onboarded_at
+		 FROM users WHERE id=$1`, id).
+		Scan(&u.ID, &u.Name, &u.Email, &u.Phone, &u.PhoneVerified, &u.Role,
+			&u.City, &u.CompanyName, &u.Plan, &u.CarsLimit, &u.PlanExpiresAt, &u.OnboardedAt)
+
+	write(w, 200, map[string]any{"token": t, "user": u})
+}
+
 // ============== context helper (нужно для App.me) ==============
 
 var _ = context.Background // защита от неиспользуемого импорта
 var _ = fmt.Sprintf
+

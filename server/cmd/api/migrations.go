@@ -241,3 +241,45 @@ func ensureRentalMessagesNotifiedSchema(ctx context.Context, db *pgxpool.Pool) e
 	log.Println("KEY rental messages notified schema applied")
 	return nil
 }
+
+func ensureUsersOnboardedSchema(ctx context.Context, db *pgxpool.Pool) error {
+	var exists bool
+	if err := db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		 WHERE table_name='users' AND column_name='onboarded_at')`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "022_users_onboarded.sql"))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, string(b)); err != nil {
+		return err
+	}
+	log.Println("KEY users onboarded schema applied")
+	return nil
+}
+
+func ensureUserNotificationsNotifiedSchema(ctx context.Context, db *pgxpool.Pool) error {
+	var exists bool
+	if err := db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		 WHERE table_name='user_notifications' AND column_name='notified_at')`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(migrationsDir(), "023_user_notifications_notified.sql"))
+	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, string(b)); err != nil {
+		return err
+	}
+	log.Println("KEY user notifications notified schema applied")
+	return nil
+}

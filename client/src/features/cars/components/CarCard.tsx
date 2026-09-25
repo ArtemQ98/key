@@ -1,4 +1,4 @@
-import { Camera, CircleDollarSign, Trash2 } from "lucide-react";
+import { Camera, CircleDollarSign, Pencil, Trash2 } from "lucide-react";
 import type { Car } from "@/api/types";
 import { CarStatusBadge, Button, Select, Skeleton } from "@/components/ui";
 import { money, num } from "@/lib/format";
@@ -8,6 +8,7 @@ interface CarCardProps {
   car: Car;
   onOpenPhotos: (car: Car) => void;
   onOpenFinance: (car: Car) => void;
+  onEdit: (car: Car) => void;                  // ← добавили
   onChangeStatus: (id: number, status: Car["status"]) => void;
   onDelete: (id: number) => void;
 }
@@ -16,6 +17,7 @@ export function CarCard({
   car,
   onOpenPhotos,
   onOpenFinance,
+  onEdit,
   onChangeStatus,
   onDelete,
 }: CarCardProps) {
@@ -34,21 +36,21 @@ export function CarCard({
             className="h-full w-full object-cover"
           />
         ) : (
-          <Camera className="h-12 w-12 text-muted-foreground/40" strokeWidth={1.2} />
+          <Camera
+            className="h-12 w-12 text-muted-foreground/40"
+            strokeWidth={1.2}
+          />
         )}
 
-        {/* Бейдж статуса */}
         <div className="absolute left-3 top-3">
           <CarStatusBadge status={car.status} />
         </div>
 
-        {/* Хинт на фото */}
-        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full bg-background/80 px-2.5 py-1 text-xs font-medium backdrop-blur-sm transition-opacity group-hover:opacity-100 opacity-0">
+        <div className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full bg-background/80 px-2.5 py-1 text-xs font-medium opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100">
           <Camera className="h-3 w-3" />
           Фото
         </div>
 
-        {/* Номер */}
         <div className="absolute bottom-3 left-3 rounded-md bg-background/90 px-2 py-1 text-xs font-semibold backdrop-blur-sm">
           {car.plate}
         </div>
@@ -73,14 +75,12 @@ export function CarCard({
           </div>
         </div>
 
-        {/* Характеристики */}
         <div className="mb-4 flex flex-wrap gap-1.5">
           <SpecBadge>{car.fuel || "—"}</SpecBadge>
           <SpecBadge>{car.transmission || "—"}</SpecBadge>
           <SpecBadge>{car.seats || "—"} мест</SpecBadge>
         </div>
 
-        {/* Финансы мини */}
         <div className="mb-4 grid grid-cols-2 gap-3 rounded-xl bg-secondary/50 p-3">
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -96,48 +96,62 @@ export function CarCard({
           </div>
         </div>
 
-        {/* Действия */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => onOpenPhotos(car)}
-          >
-            <Camera className="h-3.5 w-3.5" />
-            Фото
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => onOpenFinance(car)}
-          >
-            <CircleDollarSign className="h-3.5 w-3.5" />
-            Финансы
-          </Button>
+        {/* Действия — 2 ряда */}
+        <div className="space-y-2">
+          {/* Верхний ряд: Фото + Финансы + Редактировать */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => onOpenPhotos(car)}
+            >
+              <Camera className="h-3.5 w-3.5" />
+              Фото
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => onOpenFinance(car)}
+            >
+              <CircleDollarSign className="h-3.5 w-3.5" />
+              Финансы
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onEdit(car)}
+              aria-label="Редактировать"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </div>
 
-          <Select
-            value={car.status}
-            onChange={(e) =>
-              onChangeStatus(car.id, e.target.value as Car["status"])
-            }
-            className="h-8 w-[110px] text-xs"
-          >
-            <option value="available">Свободен</option>
-            <option value="rented">В аренде</option>
-            <option value="maintenance">Сервис</option>
-          </Select>
+          {/* Нижний ряд: Статус + Удалить */}
+          <div className="flex items-center gap-2">
+            <Select
+              value={car.status}
+              onChange={(e) =>
+                onChangeStatus(car.id, e.target.value as Car["status"])
+              }
+              className="h-9 flex-1 text-sm"
+            >
+              <option value="available">Свободен</option>
+              <option value="rented">В аренде</option>
+              <option value="maintenance">Сервис</option>
+            </Select>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-            onClick={() => onDelete(car.id)}
-            aria-label="Удалить"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+              onClick={() => onDelete(car.id)}
+              aria-label="Удалить"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -172,9 +186,9 @@ export function CarCardSkeleton() {
         <Skeleton className="h-3 w-1/2" />
         <Skeleton className="h-16 w-full" />
         <div className="flex gap-2">
-          <Skeleton className="h-8 flex-1" />
-          <Skeleton className="h-8 flex-1" />
-          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-9 flex-1" />
+          <Skeleton className="h-9 flex-1" />
+          <Skeleton className="h-9 w-9" />
         </div>
       </div>
     </div>

@@ -1,8 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Building2, Check, LogOut, Mail, Phone, ShieldCheck } from "lucide-react";
+import {
+  Building2,
+  Check,
+  LogOut,
+  Mail,
+  Phone,
+  ShieldCheck,
+} from "lucide-react";
 import { PageHead } from "@/components/layout";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { PlanModal, PlanUsageCard } from "@/features/plans";
@@ -15,6 +22,7 @@ import {
   CardTitle,
   Field,
   Input,
+  toast,
 } from "@/components/ui";
 import { useAuthStore } from "@/stores/auth";
 import { useUpdateProfile } from "@/hooks/useProfile";
@@ -34,6 +42,17 @@ export function SettingsPage() {
   const updateProfile = useUpdateProfile();
   const [saved, setSaved] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const fetchMe = useAuthStore((s) => s.fetchMe);
+
+  useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("payment") === "success") {
+    fetchMe().then(() => {
+      toast.success("Оплата получена, тариф активирован");
+    });
+    window.history.replaceState({}, "", window.location.pathname);
+  }
+}, [fetchMe]);
 
   const {
     register,

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Logo } from "@/components/layout";
 import { Button, RentalStatusBadge, Spinner } from "@/components/ui";
@@ -13,16 +13,33 @@ import { RentalEventsTimeline } from "@/features/rentals/components/detail/Renta
 import { money } from "@/lib/format";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { toast } from "sonner";
+import { HoldTimer } from "@/features/rentals/components/detail/HoldTimer";
+
+type TabKey = "details" | "events" | "chat";
 
 export function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const bookingId = id ? Number(id) : null;
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const customer = useCustomerAuthStore((s) => s.customer);
   const detail = useCustomerBookingDetail(bookingId);
   const cancelBooking = useCancelBooking();
 
-  const [tab, setTab] = useState<"details" | "events" | "chat">("details");
+  const [tab, setTab] = useState<TabKey>(
+    searchParams.get("tab") === "chat" ? "chat" : "details",
+  );
+
+  // Если пришли по ?tab=chat — переключаем и убираем параметр из URL
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t === "chat" || t === "events" || t === "details") {
+      setTab(t as TabKey);
+      const next = new URLSearchParams(searchParams);
+      next.delete("tab");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   if (!customer) {
     return (
@@ -82,7 +99,12 @@ export function BookingDetailPage() {
               {b.fleet} · {b.city}
             </p>
           </div>
-          <RentalStatusBadge status={b.status} />
+          <div className="flex flex-wrap items-center gap-2">
+            {b.status === "pending" && b.hold_expires_at && (
+              <HoldTimer expiresAt={b.hold_expires_at} />
+            )}
+            <RentalStatusBadge status={b.status} />
+          </div>
         </div>
 
         {/* Табы */}
@@ -150,7 +172,7 @@ export function BookingDetailPage() {
         {tab === "events" && <RentalEventsTimeline events={b.events ?? []} />}
 
         {tab === "chat" && (
-            <ChatPanel rentalId={b.id} otherName="Владелец" as="customer" />
+          <ChatPanel rentalId={b.id} otherName="Владелец" as="customer" />
         )}
       </main>
     </div>

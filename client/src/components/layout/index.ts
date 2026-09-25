@@ -6,3 +6,4 @@ export * from "./PageHead";
 export * from "./Shell";
 export * from "./Sidebar";
 export * from "./Topbar";
+export * from "./NotificationsBell";

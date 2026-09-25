@@ -11,7 +11,8 @@ export interface User {
   company_name: string;
   plan: Plan;
   cars_limit: number;
-  plan_expires_at?: string | null;   // ← должно быть
+  plan_expires_at?: string | null;
+  onboarded_at?: string | null; 
 }
 
 export type Plan = "free" | "pro" | "business" | "enterprise";
@@ -84,6 +85,7 @@ export interface Rental {
   ends_at: string | null;
   payment_status: PaymentStatus;
   final_total: number;
+  hold_expires_at?: string | null;
 }
 
 export interface Dashboard {
@@ -180,6 +182,7 @@ export interface CustomerBooking {
   return_meeting_at: string | null;
   return_meeting_location: string;
   events?: RentalEvent[];
+  hold_expires_at?: string | null;
 }
 
 export interface Client {

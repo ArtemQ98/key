@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { customerAuthApi } from "@/api/customerAuth";
 import { tokens } from "@/api/client";
 import type { User } from "@/api/types";
+import OneSignal from "react-onesignal";
 
 interface CustomerAuthState {
   customer: User | null;
@@ -45,6 +46,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>((set) => ({
       const res = await customerAuthApi.register(input);
       tokens.customer.set(res.token);
       set({ customer: res.user, loading: false });
+      OneSignal.login(res.user.id.toString()).catch(() => {});
     } catch (e) {
       set({
         error: e instanceof Error ? e.message : "Ошибка регистрации",
@@ -57,6 +59,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>((set) => ({
   logout() {
     tokens.customer.clear();
     set({ customer: null, error: null });
+    OneSignal.logout().catch(() => {});
   },
 
   async fetchMe() {
@@ -69,6 +72,7 @@ export const useCustomerAuthStore = create<CustomerAuthState>((set) => ({
     try {
       const u = await customerAuthApi.me();
       set({ customer: u, loading: false });
+      OneSignal.login(u.id.toString()).catch(() => {});
     } catch {
       tokens.customer.clear();
       set({ customer: null, loading: false });

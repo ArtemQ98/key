@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { CalendarDays, Plus } from "lucide-react";
 import { PageHead } from "@/components/layout";
 import { Button, Empty } from "@/components/ui";
@@ -14,6 +15,8 @@ import type { RentalStatus } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { toast } from "sonner";
 
+type TabKey = "ops" | "data" | "events" | "chat";
+
 const FILTERS: Array<{ key: RentalStatus | "all"; label: string }> = [
   { key: "all", label: "Все" },
   { key: "pending", label: "Новые" },
@@ -28,6 +31,28 @@ export function RentalsPage() {
   const [filter, setFilter] = useState<RentalStatus | "all">("all");
   const [newOpen, setNewOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedTab, setSelectedTab] = useState<TabKey>("ops");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Открываем модалку аренды, если пришли по ссылке ?open=<id>&tab=<key>
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId) return;
+    const id = Number(openId);
+    if (!Number.isFinite(id) || id <= 0) return;
+
+    const tab = searchParams.get("tab");
+    const validTabs: TabKey[] = ["ops", "data", "events", "chat"];
+    setSelectedId(id);
+    setSelectedTab(
+      validTabs.includes(tab as TabKey) ? (tab as TabKey) : "ops",
+    );
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("open");
+    next.delete("tab");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const rentals = rentalsQuery.data ?? [];
   const visible = rentals.filter((r) => filter === "all" || r.status === filter);
@@ -40,6 +65,11 @@ export function RentalsPage() {
         onError: (e) => toast.error(e instanceof Error ? e.message : "Ошибка"),
       },
     );
+  }
+
+  function openRental(id: number) {
+    setSelectedId(id);
+    setSelectedTab("ops");
   }
 
   return (
@@ -59,7 +89,7 @@ export function RentalsPage() {
       <RentalKpis rentals={rentals} />
 
       <div className="mb-6">
-        <RentalCalendar onOpenBooking={(id) => setSelectedId(id)} />
+        <RentalCalendar onOpenBooking={openRental} />
       </div>
 
       <section className="rounded-xl border border-border bg-card shadow-card">
@@ -95,7 +125,7 @@ export function RentalsPage() {
         ) : visible.length ? (
           <RentalsTable
             rentals={visible}
-            onOpen={(id) => setSelectedId(id)}
+            onOpen={openRental}
             onAdvance={handleAdvance}
           />
         ) : (
@@ -113,8 +143,14 @@ export function RentalsPage() {
 
       <RentalDetailModal
         rentalId={selectedId}
-        onOpenChange={(open) => !open && setSelectedId(null)}
-        />
+        initialTab={selectedTab}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedId(null);
+            setSelectedTab("ops");
+          }
+        }}
+      />
     </>
   );
 }

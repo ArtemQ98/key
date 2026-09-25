@@ -1,13 +1,10 @@
 import { useEffect } from "react";
-import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth";
 import { CenteredSpinner } from "@/components/ui";
 import { Shell } from "./Shell";
 import { useUIStore } from "@/stores/ui";
 import { motion } from "framer-motion";
-// import { AnimatePresence, motion } from "framer-motion";
-// import { pageTransition } from "@/components/animations";
-
 
 const titles: Record<string, string> = {
   "/app": "Обзор",
@@ -26,6 +23,7 @@ export function OwnerLayout() {
   const fetchMe = useAuthStore((s) => s.fetchMe);
   const logout = useAuthStore((s) => s.logout);
   const location = useLocation();
+  const navigate = useNavigate();
   const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
 
   // Первый заход — попробуем восстановить сессию
@@ -40,6 +38,14 @@ export function OwnerLayout() {
     return () => window.removeEventListener("key:logout", handler);
   }, [logout]);
 
+  // Если владелец не прошёл онбординг — отправляем на /app/welcome
+  useEffect(() => {
+    if (!user) return;
+    if (!user.onboarded_at && location.pathname !== "/app/welcome") {
+      navigate("/app/welcome", { replace: true });
+    }
+  }, [user, location.pathname, navigate]);
+
   if (loading && !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -50,6 +56,10 @@ export function OwnerLayout() {
 
   if (!user) {
     return <Navigate to="/app/login" replace state={{ from: location }} />;
+  }
+
+  if (!user.onboarded_at && location.pathname !== "/app/welcome") {
+    return <Navigate to="/app/welcome" replace />;
   }
 
   const title = titles[location.pathname] ?? "KEY";

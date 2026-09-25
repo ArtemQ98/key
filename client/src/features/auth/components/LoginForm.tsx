@@ -7,6 +7,7 @@ import { Button, Field, Input } from "@/components/ui";
 import { api, tokens } from "@/api/client";
 import { useAuthStore } from "@/stores/auth";
 import { isApiError } from "@/lib/apiError";
+import { User } from "@/api";
 
 const schema = z.object({
   email: z.string().email("Некорректный email"),
@@ -36,7 +37,7 @@ export function LoginForm() {
     setServerError("");
     setBusy(true);
     try {
-      await api.post("/auth/request-code", { email: values.email });
+      await api.post("/auth/owner/login-request-code", { email: values.email });
       setEmail(values.email);
       setStep("code");
     } catch (e) {
@@ -51,15 +52,17 @@ export function LoginForm() {
     setServerError("");
     setBusy(true);
     try {
-      const res = await api.post<{ token: string }>("/auth/owner/verify-code", {
-        email,
-        code,
-      });
+      const res = await api.post<{ token: string; user: User }>(
+        "/auth/owner/login-verify-code",
+        { email, code },
+      );
       tokens.owner.set(res.token);
       await fetchMe();
     } catch (e) {
       if (isApiError(e) && e.status === 403) {
         setServerError(e.message + ". Используйте страницу маркетплейса keyfleet.ru");
+      } else if (isApiError(e) && e.status === 404) {
+        setServerError("Пользователь с таким email не найден. Зарегистрируйтесь.");
       } else {
         setServerError(isApiError(e) ? e.message : "Неверный код");
       }

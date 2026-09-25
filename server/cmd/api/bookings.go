@@ -69,7 +69,7 @@ func (a *App) bookings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var overlap bool
-	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM rentals WHERE car_id=$1 AND status IN ('hold','pending','review','confirmed','active') AND (status<>'hold' OR hold_expires_at IS NULL OR hold_expires_at>now()) AND starts_at < $3 AND ends_at > $2)`, in.CarID, st, en).Scan(&overlap)
+	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM rentals WHERE car_id=$1 AND status IN ('hold','pending','confirmed','active') AND (status<>'hold' OR hold_expires_at IS NULL OR hold_expires_at>now()) AND starts_at < $3 AND ends_at > $2)`, in.CarID, st, en).Scan(&overlap)
 	if err != nil {
 		write(w, 500, map[string]string{"error": "не удалось проверить доступность"})
 		return
@@ -85,7 +85,7 @@ func (a *App) bookings(w http.ResponseWriter, r *http.Request) {
 	subtotal := price * float64(days)
 	customer := userID(r.Context())
 	var id int64
-	err = tx.QueryRow(r.Context(), `INSERT INTO rentals(owner_id,car_id,client_user_id,car_name,client_name,client_phone,status,amount,subtotal,deposit,starts_at,ends_at,source,payment_status,pickup_location,dropoff_location) SELECT $1,$2,$3,$4,u.name,u.phone,'pending',$5,$5,$6,$7,$8,'marketplace','unpaid',$9,$10 FROM users u WHERE u.id=$3 RETURNING id`, ownerID, in.CarID, customer, carName, subtotal, deposit, st, en, first(in.PickupLocation, ""), first(in.DropoffLocation, "")).Scan(&id)
+	err = tx.QueryRow(r.Context(), `INSERT INTO rentals(owner_id,car_id,client_user_id,car_name,client_name,client_phone,status,amount,subtotal,deposit,starts_at,ends_at,source,payment_status,pickup_location,dropoff_location,hold_expires_at) SELECT $1,$2,$3,$4,u.name,u.phone,'pending',$5,$5,$6,$7,$8,'marketplace','unpaid',$9,$10,now() + interval '24 hours' FROM users u WHERE u.id=$3 RETURNING id`, ownerID, in.CarID, customer, carName, subtotal, deposit, st, en, first(in.PickupLocation, ""), first(in.DropoffLocation, "")).Scan(&id)
 	if err != nil {
 		write(w, 500, map[string]string{"error": "не удалось создать бронирование"})
 		return
@@ -100,6 +100,12 @@ func (a *App) bookings(w http.ResponseWriter, r *http.Request) {
 		write(w, 500, map[string]string{"error": "не удалось подтвердить бронь"})
 		return
 	}
+
+	// Уведомление владельцу о новой заявке
+	_ = a.createNotification(r.Context(), ownerID, id,
+		"Новая заявка на бронь",
+		fmt.Sprintf("%s · %s — %s", carName, st.Format("02.01"), en.Format("02.01")))
+
 	write(w, 201, map[string]any{"id": id, "booking_code": code, "status": "pending", "car": carName, "starts_at": st, "ends_at": en, "subtotal": subtotal, "deposit": deposit, "payment_status": "unpaid"})
 }
 
@@ -110,7 +116,7 @@ func (a *App) customerBookings(w http.ResponseWriter, r *http.Request) {
 		write(w, 403, map[string]string{"error": "customer access required"})
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT r.id,COALESCE(r.booking_code,''),r.car_name,r.status,r.amount,r.deposit,r.starts_at,r.ends_at,COALESCE(fp.title,''),COALESCE(fp.city,''),r.payment_status,r.pickup_meeting_at,r.pickup_meeting_location,r.return_meeting_at,r.return_meeting_location FROM rentals r LEFT JOIN cars c ON c.id=r.car_id LEFT JOIN fleet_profiles fp ON fp.owner_id=r.owner_id WHERE r.client_user_id=$1 ORDER BY r.starts_at DESC NULLS LAST,r.id DESC`, userID(r.Context()))
+	rows, err := a.db.Query(r.Context(), `SELECT r.id,COALESCE(r.booking_code,''),r.car_name,r.status,r.amount,r.deposit,r.starts_at,r.ends_at,COALESCE(fp.title,''),COALESCE(fp.city,''),r.payment_status,r.pickup_meeting_at,r.pickup_meeting_location,r.return_meeting_at,r.return_meeting_location,r.hold_expires_at FROM rentals r LEFT JOIN cars c ON c.id=r.car_id LEFT JOIN fleet_profiles fp ON fp.owner_id=r.owner_id WHERE r.client_user_id=$1 ORDER BY r.starts_at DESC NULLS LAST,r.id DESC`, userID(r.Context()))
 	if err != nil {
 		write(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -123,8 +129,9 @@ func (a *App) customerBookings(w http.ResponseWriter, r *http.Request) {
 		var amount, deposit float64
 		var st, en, pickupMeeting, returnMeeting *time.Time
 		var pickupLocation, returnLocation string
-		if rows.Scan(&id, &code, &car, &status, &amount, &deposit, &st, &en, &fleet, &city, &payment, &pickupMeeting, &pickupLocation, &returnMeeting, &returnLocation) == nil {
-			out = append(out, map[string]any{"id": id, "booking_code": code, "car": car, "status": status, "amount": amount, "deposit": deposit, "starts_at": st, "ends_at": en, "fleet": fleet, "city": city, "payment_status": payment, "pickup_meeting_at": pickupMeeting, "pickup_meeting_location": pickupLocation, "return_meeting_at": returnMeeting, "return_meeting_location": returnLocation})
+		var holdExpiresAt *time.Time
+		if rows.Scan(&id, &code, &car, &status, &amount, &deposit, &st, &en, &fleet, &city, &payment, &pickupMeeting, &pickupLocation, &returnMeeting, &returnLocation, &holdExpiresAt) == nil {
+			out = append(out, map[string]any{"id": id, "booking_code": code, "car": car, "status": status, "amount": amount, "deposit": deposit, "starts_at": st, "ends_at": en, "fleet": fleet, "city": city, "payment_status": payment, "pickup_meeting_at": pickupMeeting, "pickup_meeting_location": pickupLocation, "return_meeting_at": returnMeeting, "return_meeting_location": returnLocation, "hold_expires_at": holdExpiresAt})
 		}
 	}
 	write(w, 200, out)
@@ -219,18 +226,20 @@ func (a *App) customerBookingByID(w http.ResponseWriter, r *http.Request) {
 	var (
 		car, status, fleet, city, payment, code string
 		amount, deposit                         float64
-		st, en, pickupMeeting, returnMeeting    *time.Time
+		st, en, pickupMeeting, returnMeeting, holdExpiresAt    *time.Time
 		pickupLocation, returnLocation          string
 		ownerID                                 int64
 	)
+	
 	err = a.db.QueryRow(r.Context(), `
 		SELECT r.id, COALESCE(r.booking_code,''), r.car_name, r.status,
-		       r.amount, r.deposit, r.starts_at, r.ends_at,
-		       COALESCE(fp.title,''), COALESCE(fp.city,''),
-		       r.payment_status,
-		       r.pickup_meeting_at, r.pickup_meeting_location,
-		       r.return_meeting_at, r.return_meeting_location,
-		       r.owner_id
+			r.amount, r.deposit, r.starts_at, r.ends_at,
+			COALESCE(fp.title,''), COALESCE(fp.city,''),
+			r.payment_status,
+			r.pickup_meeting_at, r.pickup_meeting_location,
+			r.return_meeting_at, r.return_meeting_location,
+			r.owner_id,
+			r.hold_expires_at
 		FROM rentals r
 		LEFT JOIN fleet_profiles fp ON fp.owner_id = r.owner_id
 		WHERE r.id=$1 AND r.client_user_id=$2
@@ -242,6 +251,7 @@ func (a *App) customerBookingByID(w http.ResponseWriter, r *http.Request) {
 		&pickupMeeting, &pickupLocation,
 		&returnMeeting, &returnLocation,
 		&ownerID,
+		&holdExpiresAt,
 	)
 	if err != nil {
 		write(w, 404, map[string]string{"error": "бронирование не найдено"})
@@ -297,6 +307,7 @@ func (a *App) customerBookingByID(w http.ResponseWriter, r *http.Request) {
 		"pickup_meeting_location": pickupLocation,
 		"return_meeting_at":       returnMeeting,
 		"return_meeting_location": returnLocation,
+		"hold_expires_at":         holdExpiresAt,
 		"events":                  events,
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,7 +42,7 @@ func (a *App) rentals(w http.ResponseWriter, r *http.Request) {
 			write(w, 422, map[string]string{"error": "укажите имя клиента"})
 			return
 		}
-		if !contains([]string{"hold", "pending", "review", "confirmed", "preparing", "active"}, in.Status) {
+		if !contains([]string{"hold", "pending", "confirmed", "preparing", "active"}, in.Status) {
 			in.Status = "pending"
 		}
 
@@ -74,7 +75,7 @@ func (a *App) rentals(w http.ResponseWriter, r *http.Request) {
 			`SELECT EXISTS(
 				SELECT 1 FROM rentals
 				WHERE car_id=$1
-				AND status IN ('hold','pending','review','confirmed','preparing','active')
+				AND status IN ('hold','pending','confirmed','preparing','active')
 				AND (status<>'hold' OR hold_expires_at IS NULL OR hold_expires_at>now())
 				AND starts_at < $3 AND ends_at > $2
 			)`, in.CarID, st, en).Scan(&overlap)
@@ -124,7 +125,7 @@ func (a *App) rentals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := a.db.Query(r.Context(), `SELECT id,COALESCE(booking_code,''),car_name,client_name,client_phone,status,amount,deposit,starts_at,ends_at,payment_status,COALESCE(final_total,amount) FROM rentals WHERE owner_id=$1 ORDER BY starts_at DESC NULLS LAST,id DESC`, owner)
+	rows, err := a.db.Query(r.Context(), `SELECT id,COALESCE(booking_code,''),car_name,client_name,client_phone,status,amount,deposit,starts_at,ends_at,payment_status,COALESCE(final_total,amount), hold_expires_at FROM rentals WHERE owner_id=$1 ORDER BY starts_at DESC NULLS LAST,id DESC`, owner)
 	if err != nil {
 		write(w, 500, map[string]string{"error": err.Error()})
 		return
@@ -136,14 +137,36 @@ func (a *App) rentals(w http.ResponseWriter, r *http.Request) {
 		var code, car, client, phone, status, payment string
 		var amount, deposit, finalTotal float64
 		var starts, ends *time.Time
-		if rows.Scan(&id, &code, &car, &client, &phone, &status, &amount, &deposit, &starts, &ends, &payment, &finalTotal) == nil {
-			out = append(out, map[string]any{"id": id, "booking_code": code, "car": car, "client": client, "phone": phone, "status": status, "amount": amount, "deposit": deposit, "starts_at": starts, "ends_at": ends, "payment_status": payment, "final_total": finalTotal})
+		var holdExpiresAt *time.Time
+		if err := rows.Scan(
+			&id, &code, &car, &client, &phone, &status,
+			&amount, &deposit, &starts, &ends, &payment, &finalTotal,
+			&holdExpiresAt,
+		); err != nil {
+			log.Printf("rentals scan: %v", err)
+			continue
 		}
+		out = append(out, map[string]any{
+			"id": id, "booking_code": code, "car": car, "client": client,
+			"phone": phone, "status": status, "amount": amount,
+			"deposit": deposit, "starts_at": starts, "ends_at": ends,
+			"payment_status": payment, "final_total": finalTotal,
+			"hold_expires_at": holdExpiresAt,
+		})
 	}
+	
 	write(w, 200, out)
 }
 
 // ============== PATCH BY ID (status) ==============
+
+func (a *App) createNotification(ctx context.Context, userID, rentalID int64, title, message string) error {
+    _, err := a.db.Exec(ctx, `
+		INSERT INTO user_notifications (user_id, rental_id, title, message)
+		VALUES ($1, NULLIF($2, 0), $3, $4)
+	`, userID, rentalID, title, message)
+    return err
+}
 
 func (a *App) rentalByID(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/api/rentals/"), 10, 64)
@@ -159,7 +182,7 @@ func (a *App) rentalByID(w http.ResponseWriter, r *http.Request) {
 		Status string `json:"status"`
 		Reason string `json:"reason"`
 	}
-	if decode(r, &in) != nil || !contains([]string{"hold", "pending", "review", "confirmed", "preparing", "active", "returned", "completed", "cancelled", "expired", "rejected"}, in.Status) {
+	if decode(r, &in) != nil || !contains([]string{"hold", "pending", "confirmed", "preparing", "active", "returned", "completed", "cancelled", "expired", "rejected"}, in.Status) {
 		write(w, 422, map[string]string{"error": "invalid status"})
 		return
 	}
@@ -182,8 +205,8 @@ func allowedRentalTransition(from, to string) bool {
 	}
 	m := map[string][]string{
 		"hold":      {"confirmed", "expired", "cancelled", "rejected"},
-		"pending":   {"review", "confirmed", "rejected", "cancelled"},
-		"review":    {"confirmed", "rejected", "cancelled"},
+		"pending":   {"confirmed", "rejected", "cancelled"},
+		// "review":    {"confirmed", "rejected", "cancelled"},
 		"confirmed": {"preparing", "active", "cancelled", "rejected"},
 		"preparing": {"active", "cancelled"},
 		"active":    {"returned", "cancelled"},
@@ -232,6 +255,60 @@ func (a *App) transitionRental(ctx context.Context, rentalID, actorID int64, act
 	} else if to == "returned" || to == "cancelled" || to == "rejected" || to == "expired" {
 		_, _ = tx.Exec(ctx, `UPDATE cars SET status='available' WHERE id=(SELECT car_id FROM rentals WHERE id=$1) AND status='rented'`, rentalID)
 	}
+
+	// Системное уведомление второй стороне
+	var clientUserID *int64
+	_ = tx.QueryRow(ctx, `SELECT client_user_id FROM rentals WHERE id=$1`, rentalID).Scan(&clientUserID)
+
+	recipient := int64(0)
+	title := ""
+	message := ""
+
+	// Определяем получателя: уведомляем того, кто НЕ совершил переход
+	if actorRole == "owner" && clientUserID != nil {
+		recipient = *clientUserID
+	} else if actorRole == "customer" {
+		recipient = ownerID
+	}
+
+	if recipient > 0 {
+		switch to {
+		case "confirmed":
+			title = "Бронь подтверждена"
+			message = "Владелец подтвердил вашу заявку. Проверьте детали в личном кабинете."
+		case "rejected":
+			title = "Заявка отклонена"
+			message = "К сожалению, владелец отклонил заявку."
+		case "preparing":
+			title = "Автомобиль готовится"
+			message = "Владелец готовит машину к выдаче."
+		case "active":
+			title = "Аренда началась"
+			message = "Автомобиль выдан. Приятной поездки!"
+		case "returned":
+			title = "Возврат принят"
+			message = "Владелец принял автомобиль. Ожидайте завершения сделки."
+		case "completed":
+			title = "Аренда завершена"
+			message = "Сделка закрыта. Спасибо, что выбрали KEY."
+		case "cancelled":
+			if actorRole == "customer" {
+				title = "Клиент отменил бронь"
+				message = "Заявка отменена клиентом."
+			} else {
+				title = "Бронь отменена"
+				message = "Владелец отменил бронь."
+			}
+		}
+
+		if title != "" {
+			_, _ = tx.Exec(ctx, `
+				INSERT INTO user_notifications (user_id, rental_id, title, message)
+				VALUES ($1, $2, $3, $4)
+			`, recipient, rentalID, title, message)
+		}
+	}
+
 	return tx.Commit(ctx)
 }
 
@@ -384,7 +461,8 @@ func (a *App) rentalOps(w http.ResponseWriter, r *http.Request) {
 		var st, en, pickup, returned, pickupMeeting, returnMeeting *time.Time
 		var mileageStart, mileageEnd, fuelStart, fuelEnd *int
 		var pickupMeetingLocation, returnMeetingLocation string
-		err = a.db.QueryRow(r.Context(), `SELECT COALESCE(r.booking_code,''),r.car_name,r.client_name,r.status,r.payment_status,r.amount,r.deposit,r.final_total,r.late_fee,r.damage_fee,r.starts_at,r.ends_at,r.pickup_at,r.returned_at,r.odometer_start,r.odometer_end,r.fuel_start,r.fuel_end,r.pickup_meeting_at,r.pickup_meeting_location,r.return_meeting_at,r.return_meeting_location FROM rentals r WHERE r.id=$1 AND r.owner_id=$2`, id, owner).Scan(&code, &car, &client, &status, &payment, &amount, &deposit, &finalTotal, &late, &damage, &st, &en, &pickup, &returned, &mileageStart, &mileageEnd, &fuelStart, &fuelEnd, &pickupMeeting, &pickupMeetingLocation, &returnMeeting, &returnMeetingLocation)
+		var holdExpiresAt *time.Time
+		err = a.db.QueryRow(r.Context(), `SELECT COALESCE(r.booking_code,''),r.car_name,r.client_name,r.status,r.payment_status,r.amount,r.deposit,r.final_total,r.late_fee,r.damage_fee,r.starts_at,r.ends_at,r.pickup_at,r.returned_at,r.odometer_start,r.odometer_end,r.fuel_start,r.fuel_end,r.pickup_meeting_at,r.pickup_meeting_location,r.return_meeting_at,r.return_meeting_location,r.hold_expires_at FROM rentals r WHERE r.id=$1 AND r.owner_id=$2`, id, owner).Scan(&code, &car, &client, &status, &payment, &amount, &deposit, &finalTotal, &late, &damage, &st, &en, &pickup, &returned, &mileageStart, &mileageEnd, &fuelStart, &fuelEnd, &pickupMeeting, &pickupMeetingLocation, &returnMeeting, &returnMeetingLocation, &holdExpiresAt)
 		if err != nil {
 			write(w, 404, map[string]string{"error": "аренда не найдена"})
 			return
@@ -408,6 +486,7 @@ func (a *App) rentalOps(w http.ResponseWriter, r *http.Request) {
 		d["pickup_meeting_location"] = pickupMeetingLocation
 		d["return_meeting_at"] = returnMeeting
 		d["return_meeting_location"] = returnMeetingLocation
+		d["hold_expires_at"] = holdExpiresAt
 		d["odometer_start"] = mileageStart
 		d["odometer_end"] = mileageEnd
 		d["fuel_start"] = fuelStart
@@ -590,7 +669,7 @@ func (a *App) rentalOps(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var blocked bool
-		if err = a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM rentals r1 JOIN rentals r2 ON r2.car_id=r1.car_id WHERE r1.id=$1 AND r2.id<>r1.id AND r2.status IN ('hold','pending','review','confirmed','preparing','active') AND r2.starts_at < $3 AND r2.ends_at > $2)`, id, currentStart, newEnd).Scan(&blocked); err != nil {
+		if err = a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM rentals r1 JOIN rentals r2 ON r2.car_id=r1.car_id WHERE r1.id=$1 AND r2.id<>r1.id AND r2.status IN ('hold','pending','confirmed','preparing','active') AND r2.starts_at < $3 AND r2.ends_at > $2)`, id, currentStart, newEnd).Scan(&blocked); err != nil {
 			write(w, 500, map[string]string{"error": "не удалось проверить доступность"})
 			return
 		}

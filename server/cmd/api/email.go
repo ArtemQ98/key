@@ -134,3 +134,49 @@ func sendChatNotification(to, carName, bookingCode, senderName, body string, isO
 
 	return sendHTMLEmail(to, subject, htmlBody)
 }
+
+// sendStatusNotification — письмо о системном событии (заявка, статус).
+// isOwner=true означает получатель-владелец, ссылка на /app/rentals.
+// isOwner=false — клиент, ссылка на /account.
+// rentalID=0 — уведомление без привязки к аренде.
+func sendStatusNotification(to, title, message string, isOwner bool, rentalID int64) error {
+	subject := title
+
+	baseURL := os.Getenv("PUBLIC_URL")
+	if baseURL == "" {
+		baseURL = "https://keyfleet.ru"
+	}
+
+	var link, linkLabel string
+	if rentalID > 0 {
+		if isOwner {
+			link = fmt.Sprintf("%s/app/rentals?open=%d", baseURL, rentalID)
+			linkLabel = "Открыть аренду"
+		} else {
+			link = fmt.Sprintf("%s/account/bookings/%d", baseURL, rentalID)
+			linkLabel = "Открыть бронь"
+		}
+	} else {
+		if isOwner {
+			link = baseURL + "/app/rentals"
+			linkLabel = "Открыть аренды"
+		} else {
+			link = baseURL + "/account"
+			linkLabel = "Открыть мои поездки"
+		}
+	}
+
+	htmlBody := fmt.Sprintf(`<div style="font-family: -apple-system, system-ui, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #111;">
+  <h2 style="font-size: 18px; margin: 0 0 16px;">%s</h2>
+  <p style="color: #444; font-size: 14px; line-height: 1.5; margin: 0 0 20px;">%s</p>
+  <a href="%s" style="display: inline-block; background: #111; color: #fff; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500;">%s</a>
+  <p style="color: #999; font-size: 12px; margin: 24px 0 0;">KEY — сервис аренды автомобилей<br>Это письмо отправлено автоматически, отвечать на него не нужно.</p>
+</div>`,
+		html.EscapeString(title),
+		html.EscapeString(message),
+		link,
+		linkLabel,
+	)
+
+	return sendHTMLEmail(to, subject, htmlBody)
+}

@@ -1,10 +1,14 @@
 import { ChevronRight } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Rental } from "@/api/types";
+import { rentalsApi } from "@/api/rentals";
+import { rentalsKeys } from "@/hooks/useRentals";
 import { Avatar, RentalStatusBadge, UnreadBadge } from "@/components/ui";
 import { useUnreadCount } from "@/hooks/useMessages";
 import { money } from "@/lib/format";
 import { formatDateShort } from "@/lib/dates";
 import { cn } from "@/lib/cn";
+import { HoldTimer } from "./detail/HoldTimer";
 
 const nextStatus: Record<string, { to: string; label: string } | undefined> = {
   confirmed: { to: "preparing", label: "Подготовить" },
@@ -26,6 +30,16 @@ export function RentalsTable({
 }: RentalsTableProps) {
   const { data: unread } = useUnreadCount("owner");
   const unreadByRental = unread?.by_rental ?? {};
+  const qc = useQueryClient();
+
+  function handleOpen(id: number) {
+    // Префетчим данные аренды заранее, чтобы модалка открылась без спиннера
+    qc.prefetchQuery({
+      queryKey: rentalsKeys.detail(id),
+      queryFn: () => rentalsApi.detail(id),
+    });
+    onOpen(id);
+  }
 
   return (
     <div className="overflow-x-auto">
@@ -48,7 +62,7 @@ export function RentalsTable({
             return (
               <tr
                 key={r.id}
-                onClick={() => onOpen(r.id)}
+                onClick={() => handleOpen(r.id)}
                 className="cursor-pointer border-b border-border transition-colors last:border-b-0 hover:bg-secondary/40"
               >
                 <td className="px-4 py-3">
@@ -82,7 +96,12 @@ export function RentalsTable({
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <RentalStatusBadge status={r.status} />
+                  <div className="flex flex-col items-start gap-1">
+                    <RentalStatusBadge status={r.status} />
+                    {r.status === "pending" && r.hold_expires_at && (
+                      <HoldTimer expiresAt={r.hold_expires_at} className="text-[10px]" />
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="font-semibold">
@@ -103,7 +122,7 @@ export function RentalsTable({
                     </button>
                   ) : (
                     <button
-                      onClick={() => onOpen(r.id)}
+                      onClick={() => handleOpen(r.id)}
                       className={cn(
                         "flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary",
                       )}

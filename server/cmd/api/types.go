@@ -14,6 +14,7 @@ type User struct {
 	Plan          string     `json:"plan"`
 	CarsLimit     int        `json:"cars_limit"`
 	PlanExpiresAt *time.Time `json:"plan_expires_at,omitempty"`
+	OnboardedAt   *time.Time `json:"onboarded_at,omitempty"`
 }
 
 type Car struct {

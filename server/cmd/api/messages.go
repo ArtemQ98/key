@@ -39,6 +39,13 @@ type rentalAccess struct {
 	CompletedAt    *time.Time
 }
 
+type SystemNotification struct {
+    ID        int64  `json:"id"`
+    Title     string `json:"title"`
+    Message   string `json:"message"`
+    CreatedAt string `json:"created_at"`
+}
+
 func (a *App) getRentalAccess(ctx context.Context, rentalID int64) (rentalAccess, error) {
 	var ra rentalAccess
 	err := a.db.QueryRow(ctx, `
@@ -331,4 +338,130 @@ func (a *App) rentalMessagesRouter(w http.ResponseWriter, r *http.Request) {
 	default:
 		write(w, 405, map[string]string{"error": "method not allowed"})
 	}
+}
+
+type UnreadNotification struct {
+	RentalID     int64   `json:"rental_id"`
+	BookingCode  string  `json:"booking_code"`
+	CarName      string  `json:"car_name"`
+	PeerName     string  `json:"peer_name"`
+	LastBody     string  `json:"last_body"`
+	LastAt       *string `json:"last_at"`
+	UnreadCount  int     `json:"unread_count"`
+}
+
+// GET /api/notifications/unread
+// Возвращает список тредов с непрочитанными сообщениями (для дропдауна уведомлений).
+func (a *App) unreadNotifications(w http.ResponseWriter, r *http.Request) {
+	uid := userID(r.Context())
+	role, _ := r.Context().Value(ctxKey("role")).(string)
+	if role != "owner" && role != "customer" {
+		write(w, 403, map[string]string{"error": "access denied"})
+		return
+	}
+
+	peerRole := "customer"
+	if role == "customer" {
+		peerRole = "owner"
+	}
+
+	rows, err := a.db.Query(r.Context(), `
+		WITH last_msg AS (
+			SELECT DISTINCT ON (rental_id)
+			       rental_id, body, created_at
+			FROM rental_messages
+			WHERE sender_role = $2
+			ORDER BY rental_id, created_at DESC, id DESC
+		),
+		unread AS (
+			SELECT rental_id, count(*) AS n
+			FROM rental_messages
+			WHERE read_at IS NULL AND sender_role = $2
+			GROUP BY rental_id
+		)
+		SELECT
+			r.id,
+			COALESCE(r.booking_code, ''),
+			r.car_name,
+			COALESCE(lm.body, ''),
+			lm.created_at,
+			COALESCE(u.n, 0),
+			CASE WHEN r.owner_id = $1 THEN uc.name ELSE uo.name END
+		FROM rentals r
+		JOIN unread u ON u.rental_id = r.id
+		LEFT JOIN last_msg lm ON lm.rental_id = r.id
+		LEFT JOIN users uo ON uo.id = r.owner_id
+		LEFT JOIN users uc ON uc.id = r.client_user_id
+		WHERE (r.owner_id = $1 OR r.client_user_id = $1)
+		  AND u.n > 0
+		ORDER BY lm.created_at DESC NULLS LAST
+		LIMIT 10
+	`, uid, peerRole)
+	if err != nil {
+		write(w, 500, map[string]string{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+
+	out := []UnreadNotification{}
+	for rows.Next() {
+		var n UnreadNotification
+		var lastAt *time.Time
+		var peerName *string
+		if err := rows.Scan(
+			&n.RentalID, &n.BookingCode, &n.CarName,
+			&n.LastBody, &lastAt, &n.UnreadCount, &peerName,
+		); err != nil {
+			continue
+		}
+		if lastAt != nil {
+			s := lastAt.UTC().Format(time.RFC3339)
+			n.LastAt = &s
+		}
+		if peerName != nil {
+			n.PeerName = *peerName
+		} else {
+			n.PeerName = "Пользователь"
+		}
+		out = append(out, n)
+	}
+
+	write(w, 200, out)
+}
+
+// GET /api/notifications/mine
+func (a *App) myNotifications(w http.ResponseWriter, r *http.Request) {
+    uid := userID(r.Context())
+    rows, err := a.db.Query(r.Context(), `
+        SELECT id, title, message, created_at
+        FROM user_notifications
+        WHERE user_id = $1 AND is_read = FALSE
+        ORDER BY created_at DESC
+        LIMIT 20
+    `, uid)
+    if err != nil {
+        write(w, 500, map[string]string{"error": "query failed"})
+        return
+    }
+    defer rows.Close()
+
+    out := []SystemNotification{}
+    for rows.Next() {
+        var n SystemNotification
+        var at time.Time
+        if rows.Scan(&n.ID, &n.Title, &n.Message, &at) == nil {
+            n.CreatedAt = at.UTC().Format(time.RFC3339)
+            out = append(out, n)
+        }
+    }
+    write(w, 200, out)
+}
+
+// POST /api/notifications/mine/read
+func (a *App) markNotificationsRead(w http.ResponseWriter, r *http.Request) {
+    uid := userID(r.Context())
+    _, _ = a.db.Exec(r.Context(),
+        `UPDATE user_notifications SET is_read = TRUE WHERE user_id = $1 AND is_read = FALSE`,
+        uid)
+    write(w, 200, map[string]bool{"ok": true})
 }

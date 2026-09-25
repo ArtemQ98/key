@@ -14,6 +14,7 @@ import {
   RevenueChart,
   TodoList,
 } from "@/features/dashboard";
+import { OnboardingChecklist } from "@/features/dashboard/components/OnboardingChecklist";
 
 export function OverviewPage() {
   const user = useAuthStore((s) => s.user);
@@ -43,7 +44,9 @@ export function OverviewPage() {
 
       <AlertStrip items={notifications} />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <OnboardingChecklist />
+
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           icon={ClipboardCheck}
           label="Сделки"

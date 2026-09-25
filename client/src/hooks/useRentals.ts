@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { rentalsApi, type CreateRentalInput, type RentalOpInput } from "@/api/rentals";
 import type { RentalStatus } from "@/api/types";
 import { carsKeys } from "./useCars";
@@ -32,6 +32,7 @@ export function useRentalDetail(id: number | null) {
     queryKey: rentalsKeys.detail(id ?? 0),
     queryFn: () => rentalsApi.detail(id!),
     enabled: id !== null,
+    placeholderData: keepPreviousData,  // ← добавили
   });
 }
 

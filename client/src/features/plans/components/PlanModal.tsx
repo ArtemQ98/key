@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { Info } from "lucide-react";
-import { Modal, ModalBody, ModalHeader } from "@/components/ui";
+import { Modal, ModalBody, ModalHeader, toast } from "@/components/ui";
 import { useAuthStore } from "@/stores/auth";
+import { api } from "@/api";
 import { PLANS } from "../plans";
 import { PlanCard } from "./PlanCard";
-import { toast } from "sonner";
 
 interface PlanModalProps {
   open: boolean;
@@ -12,13 +13,41 @@ interface PlanModalProps {
 
 export function PlanModal({ open, onOpenChange }: PlanModalProps) {
   const user = useAuthStore((s) => s.user);
+  const [busyPlan, setBusyPlan] = useState<string | null>(null);
 
-  function handleChoose() {
-    toast.info(
-      "Онлайн-оплата появится в ближайшее время. Пока свяжитесь с нами.",
-      { duration: 5000 },
-    );
-    onOpenChange(false);
+  async function handleChoose(planId: string) {
+    if (busyPlan) return;
+
+    // Уже на этом тарифе — ничего не делаем
+    if (user?.plan === planId) return;
+
+    // Понижение до Free — пока через поддержку
+    if (planId === "free") {
+      toast.info("Понижение тарифа — обратитесь в поддержку", {
+        duration: 5000,
+      });
+      return;
+    }
+
+    setBusyPlan(planId);
+    try {
+      const { confirmation_url } = await api.post<{ confirmation_url: string }>(
+        "/billing/subscribe",
+        { plan_id: planId },
+      );
+
+      if (confirmation_url) {
+        window.location.href = confirmation_url;
+      } else {
+        toast.error("Не удалось получить ссылку на оплату");
+        setBusyPlan(null);
+      }
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Не удалось создать платёж",
+      );
+      setBusyPlan(null);
+    }
   }
 
   return (
@@ -34,7 +63,7 @@ export function PlanModal({ open, onOpenChange }: PlanModalProps) {
               key={p.id}
               plan={p}
               current={user?.plan === p.id}
-              onChoose={handleChoose}
+              onChoose={() => handleChoose(p.id)}
             />
           ))}
         </div>
@@ -42,9 +71,9 @@ export function PlanModal({ open, onOpenChange }: PlanModalProps) {
         <div className="flex items-start gap-3 rounded-xl bg-secondary/40 p-4 text-xs text-muted-foreground">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            Онлайн-оплата появится в ближайшее время. Пока вы можете управлять
-            парком на текущем тарифе. Для перехода на Pro или Business —
-            напишите нам.
+            Оплата проходит через ЮKassa. Подписка оформляется на 1 месяц и
+            продлевается автоматически. Отменить можно в любой момент — доступ
+            сохранится до конца оплаченного периода.
           </span>
         </div>
       </ModalBody>

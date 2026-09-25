@@ -63,7 +63,14 @@ export function CustomerAuthForm({ onSuccess, compact }: CustomerAuthFormProps) 
 
     setBusy(true);
     try {
-      await publicApi.post("/auth/request-code", { email: values.email });
+      // Вход — проверяем, что клиент существует.
+      // Регистрация — общий эндпоинт, создаёт нового пользователя.
+      const endpoint =
+        mode === "login"
+          ? "/auth/customer/login-request-code"
+          : "/auth/request-code";
+
+      await publicApi.post(endpoint, { email: values.email });
       setFormData({
         name: values.name || "",
         phone: values.phone || "",
@@ -92,16 +99,22 @@ export function CustomerAuthForm({ onSuccess, compact }: CustomerAuthFormProps) 
         payload.phone = formData.phone;
       }
 
-      const res = await publicApi.post<{ token: string }>(
-        "/auth/verify-code",
-        payload,
-      );
+      const endpoint =
+        mode === "login"
+          ? "/auth/customer/login-verify-code"
+          : "/auth/verify-code";
+
+      const res = await publicApi.post<{ token: string }>(endpoint, payload);
       tokens.customer.set(res.token);
       await fetchMe();
       onSuccess();
     } catch (e) {
       if (isApiError(e) && e.status === 403) {
-        setServerError(e.message + ". Используйте страницу владельца /app/login");
+        setServerError(
+          e.message + ". Используйте страницу владельца /app/login",
+        );
+      } else if (isApiError(e) && e.status === 404) {
+        setServerError("Пользователь с таким email не найден. Зарегистрируйтесь.");
       } else {
         setServerError(isApiError(e) ? e.message : "Неверный код");
       }

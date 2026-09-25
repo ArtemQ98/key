@@ -1,9 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { modalContent, overlay } from "@/components/animations/variants";
 
 interface ModalProps {
   open: boolean;
@@ -33,45 +31,37 @@ export function Modal({
 }: ModalProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <AnimatePresence>
-        {open && (
-          <DialogPrimitive.Portal forceMount>
-            <DialogPrimitive.Overlay asChild forceMount>
-              <motion.div
-                variants={overlay}
-                initial="hidden"
-                animate="visible"
-                exit="exit"
-                className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-              />
-            </DialogPrimitive.Overlay>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay
+          className={cn(
+            "fixed inset-0 z-50 bg-black/50 backdrop-blur-sm",
+            "data-[state=open]:animate-in data-[state=closed]:animate-out",
+            "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+            "duration-200",
+          )}
+        />
 
-            <DialogPrimitive.Content asChild forceMount>
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                <motion.div
-                  variants={modalContent}
-                  initial="hidden"
-                  animate="visible"
-                  exit="exit"
-                  className={cn(
-                    "relative max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-2xl border border-border bg-card shadow-elevated",
-                    sizes[size],
-                    className,
-                  )}
-                >
-                  {!hideClose && (
-                    <DialogPrimitive.Close className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                      <X className="h-4 w-4" />
-                      <span className="sr-only">Закрыть</span>
-                    </DialogPrimitive.Close>
-                  )}
-                  {children}
-                </motion.div>
-              </div>
-            </DialogPrimitive.Content>
-          </DialogPrimitive.Portal>
-        )}
-      </AnimatePresence>
+        <DialogPrimitive.Content
+          className={cn(
+            "fixed left-1/2 top-1/2 z-50 flex w-full -translate-x-1/2 -translate-y-1/2 flex-col",
+            "max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl border border-border bg-card shadow-elevated",
+            "data-[state=open]:animate-in data-[state=closed]:animate-out",
+            "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+            "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
+            "duration-200",
+            sizes[size],
+            className,
+          )}
+        >
+          {!hideClose && (
+            <DialogPrimitive.Close className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <X className="h-4 w-4" />
+              <span className="sr-only">Закрыть</span>
+            </DialogPrimitive.Close>
+          )}
+          {children}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );
 }

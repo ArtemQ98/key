@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { authApi } from "@/api/auth";
 import { tokens } from "@/api/client";
 import type { User } from "@/api/types";
+import OneSignal from "react-onesignal";
+
 
 interface AuthState {
   user: User | null;
@@ -35,6 +37,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const res = await authApi.login({ identifier, password });
       tokens.owner.set(res.token);
       set({ user: res.user, loading: false });
+      OneSignal.login(res.user.id.toString()).catch(() => {});
     } catch (e) {
       set({
         error: e instanceof Error ? e.message : "Ошибка входа",
@@ -50,6 +53,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const res = await authApi.register(input);
       tokens.owner.set(res.token);
       set({ user: res.user, loading: false });
+      OneSignal.login(res.user.id.toString()).catch(() => {});
     } catch (e) {
       set({
         error: e instanceof Error ? e.message : "Ошибка регистрации",
@@ -62,6 +66,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout() {
     tokens.owner.clear();
     set({ user: null, error: null });
+    OneSignal.logout().catch(() => {});
   },
 
   async fetchMe() {
@@ -76,6 +81,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (u.role !== "owner") {
         tokens.owner.clear();
         set({ user: null, loading: false });
+        OneSignal.login(u.id.toString()).catch(() => {});
         return;
       }
       set({ user: u, loading: false });

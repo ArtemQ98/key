@@ -43,6 +43,8 @@ func main() {
 		{"rental terms", ensureRentalTermsSchema},
 		{"rental messages", ensureRentalMessagesSchema},
 		{"rental messages notified", ensureRentalMessagesNotifiedSchema},
+		{"users onboarded", ensureUsersOnboardedSchema},
+		{"user notifications notified", ensureUserNotificationsNotifiedSchema},
 	}
 	for _, m := range migrations {
 		if err := m.fn(ctx, db); err != nil {
@@ -82,6 +84,8 @@ func main() {
 
 	if isProd() {
 		go app.startChatNotifyCron(ctx)
+		go app.startStatusNotifyCron(ctx)
+		go app.startRentalCrons(ctx)
 	}
 
 	// === Router ===
@@ -106,6 +110,10 @@ func main() {
 	mux.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadsDir()))))
 
 	// Auth — любой залогиненный
+	mux.HandleFunc("/api/auth/owner/login-request-code", app.ownerLoginRequestCode)
+	mux.HandleFunc("/api/auth/owner/login-verify-code", app.ownerLoginVerifyCode)
+	mux.HandleFunc("/api/auth/customer/login-request-code", app.customerLoginRequestCode)
+	mux.HandleFunc("/api/auth/customer/login-verify-code", app.customerLoginVerifyCode)
 	mux.Handle("/api/me", app.auth(http.HandlerFunc(app.me)))
 	mux.Handle("/api/bookings", app.auth(http.HandlerFunc(app.bookings)))
 	mux.Handle("/api/bookings/", app.auth(http.HandlerFunc(app.bookingByID)))
@@ -115,6 +123,7 @@ func main() {
 	mux.Handle("/api/rental-messages/", app.auth(http.HandlerFunc(app.rentalMessagesRouter)))
 
 	// Owner-only
+	mux.Handle("/api/profile/onboarded", app.auth(http.HandlerFunc(app.markOnboarded)))
 	mux.Handle("/api/profile", app.ownerOnly(http.HandlerFunc(app.profile)))
 	mux.Handle("/api/fleet-profile", app.ownerOnly(http.HandlerFunc(app.fleetProfile)))
 	mux.Handle("/api/fleet-avatar", app.ownerOnly(http.HandlerFunc(app.fleetAvatar)))
@@ -134,6 +143,15 @@ func main() {
 	mux.Handle("/api/verification/", app.ownerOnly(http.HandlerFunc(app.verificationByID)))
 	mux.Handle("/api/clients", app.ownerOnly(http.HandlerFunc(app.clients)))
 	mux.Handle("/api/notifications", app.ownerOnly(http.HandlerFunc(app.notifications)))
+	mux.Handle("/api/notifications/unread", app.auth(http.HandlerFunc(app.unreadNotifications)))
+	mux.Handle("/api/notifications/mine", app.auth(http.HandlerFunc(app.myNotifications)))
+	mux.Handle("/api/notifications/mine/read", app.auth(http.HandlerFunc(app.markNotificationsRead)))
+
+	// Billing — только для владельцев
+	mux.Handle("/api/billing/subscribe", app.ownerOnly(http.HandlerFunc(app.createSubscriptionPayment)))
+
+	// Вебхук — публичный (ЮKassa стучится сама)
+	mux.HandleFunc("/api/webhooks/yookassa", app.yookassaWebhook)
 
 	// === Server ===
 	addr := getenv("LISTEN_ADDR", ":8080")

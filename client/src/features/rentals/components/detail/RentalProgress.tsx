@@ -14,11 +14,11 @@ const ORDER: Record<RentalStatus, number> = {
   hold: 0,
   pending: 0,
   review: 0,
-  confirmed: 1,   // бронь подтверждена → активен шаг 2 «Подготовка»
-  preparing: 2,   // готовим → активен шаг 3 «Выдача»
-  active: 3,      // выдана → активен шаг 4 «Возврат»
-  returned: 4,    // возвращена → активен шаг 5 «Закрытие»
-  completed: 5,   // всё ✅
+  confirmed: 1, // бронь подтверждена → активен шаг 2 «Подготовка»
+  preparing: 2, // готовим → активен шаг 3 «Выдача»
+  active: 3, // выдана → активен шаг 4 «Возврат»
+  returned: 4, // возвращена → активен шаг 5 «Закрытие»
+  completed: 5, // всё ✅
   cancelled: -1,
   expired: -1,
   rejected: -1,

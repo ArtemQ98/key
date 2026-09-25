@@ -29,6 +29,23 @@ export interface UnreadCountResponse {
   by_rental: Record<string, number>;
 }
 
+export interface UnreadNotification {
+  rental_id: number;
+  booking_code: string;
+  car_name: string;
+  peer_name: string;
+  last_body: string;
+  last_at: string | null;
+  unread_count: number;
+}
+
+export interface SystemNotification {
+  id: number;
+  title: string;
+  message: string;
+  created_at: string;
+}
+
 type As = "owner" | "customer";
 
 export const messagesApi = {
@@ -53,4 +70,19 @@ export const messagesApi = {
     as === "owner"
       ? api.get<UnreadCountResponse>("/rental-messages/unread-count")
       : customerApi.get<UnreadCountResponse>("/rental-messages/unread-count"),
+
+  unreadNotifications: (as: As) =>
+    as === "owner"
+      ? api.get<UnreadNotification[]>("/notifications/unread")
+      : customerApi.get<UnreadNotification[]>("/notifications/unread"),
+
+  myNotifications: (as: As) =>
+    as === "owner"
+      ? api.get<SystemNotification[]>("/notifications/mine")
+      : customerApi.get<SystemNotification[]>("/notifications/mine"),
+
+  markNotificationsRead: (as: As) =>
+    as === "owner"
+      ? api.post<{ ok: boolean }>("/notifications/mine/read")
+      : customerApi.post<{ ok: boolean }>("/notifications/mine/read"),
 };

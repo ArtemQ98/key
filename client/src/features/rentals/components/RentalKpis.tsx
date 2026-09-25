@@ -8,18 +8,14 @@ export function RentalKpis({ rentals }: { rentals: Rental[] }) {
     ["confirmed", "preparing", "active"].includes(r.status),
   ).length;
 
-  const pending = rentals.filter((r) =>
-    ["pending", "review"].includes(r.status),
-  ).length;
+  const pending = rentals.filter((r) => r.status === "pending").length;
 
   const revenue = rentals
     .filter((r) => ["active", "returned", "completed"].includes(r.status))
     .reduce((a, r) => a + Number(r.final_total || r.amount || 0), 0);
 
   const deposits = rentals
-    .filter(
-      (r) => !["cancelled", "rejected", "expired"].includes(r.status),
-    )
+    .filter((r) => !["cancelled", "rejected", "expired"].includes(r.status))
     .reduce((a, r) => a + Number(r.deposit || 0), 0);
 
   return (

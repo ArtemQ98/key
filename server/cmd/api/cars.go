@@ -179,6 +179,10 @@ func (a *App) carByID(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == "PATCH" {
 		var in struct {
+			Brand               *string       `json:"brand"`
+			Model               *string       `json:"model"`
+			Plate               *string       `json:"plate"`
+			Year                *int          `json:"year"`
 			Status              *string       `json:"status"`
 			DailyPrice          *float64      `json:"daily_price"`
 			Location            *string       `json:"location"`
@@ -230,26 +234,31 @@ func (a *App) carByID(w http.ResponseWriter, r *http.Request) {
 
 		tag, err := a.db.Exec(r.Context(), `
 		UPDATE cars SET
-			status               = COALESCE($1, status),
-			daily_price          = COALESCE($2, daily_price),
-			location             = COALESCE($3, location),
-			mileage              = COALESCE($4, mileage),
-			public_enabled       = COALESCE($5, public_enabled),
-			category             = COALESCE($6, category),
-			seats                = COALESCE($7, seats),
-			transmission         = COALESCE($8, transmission),
-			fuel                 = COALESCE($9, fuel),
-			description          = COALESCE($10, description),
-			image_url            = COALESCE($11, image_url),
-			deposit              = COALESCE($12, deposit),
-			engine_volume        = COALESCE($13, engine_volume),
-			horsepower           = COALESCE($14, horsepower),
-			drive_type           = COALESCE($15, drive_type),
-			fuel_consumption     = COALESCE($16, fuel_consumption),
-			tank_volume          = COALESCE($17, tank_volume),
-			maintenance_interval = COALESCE($18, maintenance_interval),
-			rental_terms         = COALESCE($19::jsonb, rental_terms)
-		WHERE id=$20 AND owner_id=$21`,
+			brand                = COALESCE($1, brand),
+			model                = COALESCE($2, model),
+			plate                = COALESCE($3, plate),
+			year                 = COALESCE($4, year),
+			status               = COALESCE($5, status),
+			daily_price          = COALESCE($6, daily_price),
+			location             = COALESCE($7, location),
+			mileage              = COALESCE($8, mileage),
+			public_enabled       = COALESCE($9, public_enabled),
+			category             = COALESCE($10, category),
+			seats                = COALESCE($11, seats),
+			transmission         = COALESCE($12, transmission),
+			fuel                 = COALESCE($13, fuel),
+			description          = COALESCE($14, description),
+			image_url            = COALESCE($15, image_url),
+			deposit              = COALESCE($16, deposit),
+			engine_volume        = COALESCE($17, engine_volume),
+			horsepower           = COALESCE($18, horsepower),
+			drive_type           = COALESCE($19, drive_type),
+			fuel_consumption     = COALESCE($20, fuel_consumption),
+			tank_volume          = COALESCE($21, tank_volume),
+			maintenance_interval = COALESCE($22, maintenance_interval),
+			rental_terms         = COALESCE($23::jsonb, rental_terms)
+		WHERE id=$24 AND owner_id=$25`,
+			in.Brand, in.Model, in.Plate, in.Year,
 			in.Status, in.DailyPrice, in.Location, in.Mileage,
 			in.PublicEnabled, in.Category, in.Seats, in.Transmission,
 			in.Fuel, in.Description, in.ImageURL, in.Deposit,

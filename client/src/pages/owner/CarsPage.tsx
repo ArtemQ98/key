@@ -19,6 +19,7 @@ export function CarsPage() {
   const deleteMutation = useDeleteCar();
 
   const [formOpen, setFormOpen] = useState(false);
+  const [editingCar, setEditingCar] = useState<Car | null>(null);  // ← добавили
   const [photosCar, setPhotosCar] = useState<Car | null>(null);
   const [financeCar, setFinanceCar] = useState<Car | null>(null);
 
@@ -42,6 +43,16 @@ export function CarsPage() {
     });
   }
 
+  function handleCreate() {
+    setEditingCar(null);
+    setFormOpen(true);
+  }
+
+  function handleEdit(car: Car) {
+    setEditingCar(car);
+    setFormOpen(true);
+  }
+
   return (
     <>
       <PageHead
@@ -49,7 +60,7 @@ export function CarsPage() {
         title="Машины"
         description="Состояние, тарифы, фото и готовность каждого автомобиля."
         action={
-          <Button onClick={() => setFormOpen(true)}>
+          <Button onClick={handleCreate}>
             <Plus className="h-4 w-4" />
             Добавить авто
           </Button>
@@ -70,6 +81,7 @@ export function CarsPage() {
               car={c}
               onOpenPhotos={setPhotosCar}
               onOpenFinance={setFinanceCar}
+              onEdit={handleEdit}                        // ← добавили
               onChangeStatus={handleChangeStatus}
               onDelete={handleDelete}
             />
@@ -81,7 +93,7 @@ export function CarsPage() {
           title="Добавьте первый автомобиль"
           description="После этого KEY начнёт считать загрузку, выручку и доступность."
           action={
-            <Button onClick={() => setFormOpen(true)}>
+            <Button onClick={handleCreate}>
               <Plus className="h-4 w-4" />
               Добавить авто
             </Button>
@@ -89,7 +101,16 @@ export function CarsPage() {
         />
       )}
 
-      <CarFormModal open={formOpen} onOpenChange={setFormOpen} />
+      <CarFormModal
+        open={formOpen}
+        onOpenChange={(v) => {
+          setFormOpen(v);
+          if (!v) setEditingCar(null);
+        }}
+        car={editingCar}                                // ← добавили
+        onCreated={() => toast.success("Автомобиль добавлен")}
+        onUpdated={() => toast.success("Изменения сохранены")}
+      />
       <CarPhotosModal
         car={photosCar}
         onOpenChange={(open) => !open && setPhotosCar(null)}

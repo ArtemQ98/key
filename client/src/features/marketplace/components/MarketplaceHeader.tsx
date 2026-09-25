@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Building2, Link, LogIn, Menu, UserRound } from "lucide-react";
+import { Building2, LogIn, Menu, UserRound } from "lucide-react";
 import { Button } from "@/components/ui";
 import { Drawer } from "@/components/ui";
-import { Logo } from "@/components/layout";
+import { Logo, NotificationsBell } from "@/components/layout";
 import type { User } from "@/api/types";
+import { NotificationToggle } from "@/components/NotificationToggle";
 
 interface MarketplaceHeaderProps {
   customer: User | null;
@@ -28,15 +29,13 @@ export function MarketplaceHeader({
     <>
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
+          {/* Логотип слева */}
           <a href="/" className="flex items-center">
             <Logo size="md" />
           </a>
 
-          {/* Навигация — десктоп */}
-          <nav className="hidden items-center gap-6 text-sm font-medium text-muted-foreground md:flex">
-            <Link to="/pricing" className="transition-colors hover:text-foreground">
-              Тарифы
-            </Link>
+          {/* Центр: навигация (десктоп) */}
+          <nav className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-6 text-sm font-medium text-muted-foreground md:flex">
             <a href="#cars" className="transition-colors hover:text-foreground">
               Автомобили
             </a>
@@ -48,9 +47,13 @@ export function MarketplaceHeader({
             </a>
           </nav>
 
-          {/* Действия */}
+          {/* Кнопки справа */}
           <div className="flex items-center gap-2">
-            {/* «Для владельцев» — только десктоп */}
+            {/* Уведомления — залогиненным. На мобиле показываем иконку. */}
+            <div className="md:hidden">
+              <NotificationToggle />
+            </div>
+
             <Button
               variant="ghost"
               size="sm"
@@ -59,8 +62,7 @@ export function MarketplaceHeader({
             >
               Для владельцев
             </Button>
-
-            {/* Аккаунт — везде */}
+            {customer && <NotificationsBell />}
             {customer ? (
               <Button variant="outline" size="sm" onClick={onAccount}>
                 <UserRound className="h-4 w-4" />
@@ -75,7 +77,6 @@ export function MarketplaceHeader({
               </Button>
             )}
 
-            {/* Бургер — только мобила */}
             <Button
               variant="ghost"
               size="icon"
@@ -125,6 +126,11 @@ export function MarketplaceHeader({
 
           {/* Разделитель */}
           <div className="my-4 h-px bg-border" />
+
+          {/* Уведомления — в мобильном меню */}
+          <div className="md:hidden">
+            <NotificationToggle />
+          </div>
 
           {/* Для владельцев — крупная кнопка */}
           <button
